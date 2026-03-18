@@ -1,0 +1,27 @@
+{
+    "example_SettingsData": {
+        "type": "SettingsData",
+        "name": "default",
+        "name_input": ["x"],
+        "name_output": ["y"],
+        "input_low": [0.0],
+        "input_upp": [1.0],
+        "input_precision": [1.0e-6],
+        "output_low": [-1.0e6],
+        "output_upp": [ 1.0e6],
+        "output_precision": [0.0],
+        "critical_scaled_distance": 1.0e-6
+    },
+    "example_SettingsProblem": {
+        "type": "SettingsProblem",
+        "name": "default",
+        "name_data_settings": "default",
+        "output_type": [-1],
+        "constraint_strings": ["y - x"]
+    },
+    "example_SettingsAlgorithm": {
+        "type": "SettingsAlgorithm",
+        "name": "default",
+        "algorithm_name": "DE"
+    }
+}
