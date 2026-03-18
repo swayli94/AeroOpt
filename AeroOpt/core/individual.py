@@ -5,6 +5,7 @@ Individual definition.
 import numpy as np
 from typing import Tuple
 from AeroOpt.core.problem import Problem
+from AeroOpt.core.settings import SettingsData
 from AeroOpt.core.utils import compare_ndarray
 
 
@@ -114,7 +115,7 @@ class Individual(object):
         '''
         Return integer i representing the source of individual
         '''
-        return Individual.source_dict[self.source]
+        return SettingsData.source_dict[self.source]
     
     @staticmethod
     def int2source(i: int) -> str:

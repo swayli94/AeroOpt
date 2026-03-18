@@ -179,7 +179,7 @@ class Problem(object):
         '''
         f = open(fname, 'w', encoding='utf-8')
         for i in range(x.shape[0]):
-            f.write('  %20s  %20.9f \n'%(self.name_inputs[i], x[i]))
+            f.write('  %20s  %20.9f \n'%(self.data_settings.name_input[i], x[i]))
         f.close()
         
     def read_input(self, fname: str) -> Tuple[bool, np.ndarray]:
@@ -195,7 +195,7 @@ class Problem(object):
         '''
         
         succeed = True
-        x = np.ones(self.n_var)
+        x = np.ones(self.n_input)
 
         if not os.path.exists(fname):
             return False, x
@@ -211,8 +211,8 @@ class Problem(object):
             line = line.split()
             dict_out[line[0]] = float(line[1])
 
-        for i in range(self.dim_input):
-            name_var = self.name_inputs[i]
+        for i in range(self.n_input):
+            name_var = self.data_settings.name_input[i]
             if not name_var in dict_out.keys():
                 print('  Error: input [%s] is not in %s'%(name_var, fname))
                 succeed = False
@@ -234,7 +234,7 @@ class Problem(object):
         '''
         
         succeed = True
-        y = np.ones(self.dim_output)
+        y = np.ones(self.n_output)
 
         if not os.path.exists(fname):
             return False, y
@@ -252,8 +252,8 @@ class Problem(object):
                 break
             dict_out[line[0]] = float(line[1])
 
-        for i in range(self.dim_output):
-            name_out = self.name_outputs[i]
+        for i in range(self.n_output):
+            name_out = self.data_settings.name_output[i]
             if not name_out in dict_out.keys():
                 print('  Error: output [%s] is not in %s'%(name_out, fname))
                 succeed = False
@@ -463,8 +463,10 @@ class Problem(object):
         '''
         mask_upper = x > self.data_settings.input_upp
         mask_lower = x < self.data_settings.input_low
-        x[mask_upper] = self.data_settings.input_upp[mask_upper]
-        x[mask_lower] = self.data_settings.input_low[mask_lower]
+        upp = np.broadcast_to(self.data_settings.input_upp, x.shape)
+        low = np.broadcast_to(self.data_settings.input_low, x.shape)
+        x[mask_upper] = upp[mask_upper]
+        x[mask_lower] = low[mask_lower]
         
         within_bounds = not (np.any(mask_upper) or np.any(mask_lower))
         return within_bounds
@@ -485,8 +487,10 @@ class Problem(object):
         '''
         mask_upper = y > self.data_settings.output_upp
         mask_lower = y < self.data_settings.output_low
-        y[mask_upper] = self.data_settings.output_upp[mask_upper]
-        y[mask_lower] = self.data_settings.output_low[mask_lower]
+        upp = np.broadcast_to(self.data_settings.output_upp, y.shape)
+        low = np.broadcast_to(self.data_settings.output_low, y.shape)
+        y[mask_upper] = upp[mask_upper]
+        y[mask_lower] = low[mask_lower]
         
         within_bounds = not (np.any(mask_upper) or np.any(mask_lower))
         return within_bounds
@@ -519,7 +523,10 @@ class Problem(object):
             SettingsData.apply_precision(x, self.data_settings.input_precision)
             span[self.mask_for_deactivated_inputs] = 1.0
             x = (x - self.data_settings.input_low) / span
-            x[self.mask_for_deactivated_inputs] = 0.0
+            if x.ndim == 1:
+                x[self.mask_for_deactivated_inputs] = 0.0
+            else:
+                x[:, self.mask_for_deactivated_inputs] = 0.0
             return x
     
     def scale_y(self, y: np.ndarray, reverse: bool = False) -> np.ndarray:
@@ -536,7 +543,10 @@ class Problem(object):
             SettingsData.apply_precision(y, self.data_settings.output_precision)
             span[self.mask_for_deactivated_outputs] = 1.0
             y = (y - self.data_settings.output_low) / span
-            y[self.mask_for_deactivated_outputs] = 0.0
+            if y.ndim == 1:
+                y[self.mask_for_deactivated_outputs] = 0.0
+            else:
+                y[:, self.mask_for_deactivated_outputs] = 0.0
             return y
     
     def get_output_by_type(self, y: np.ndarray, type_list: List[int]) -> np.ndarray:
@@ -577,9 +587,9 @@ class Problem(object):
         distance: ndarray [n1, n2]
             distance between x1 and x2, scaled to [0, 1].
         '''
-        if x1.dim == 1:
+        if x1.ndim == 1:
             x1 = x1[np.newaxis, :]
-        if x2.dim == 1:
+        if x2.ndim == 1:
             x2 = x2[np.newaxis, :]
         
         if use_scaled_x:

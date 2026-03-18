@@ -127,10 +127,17 @@ class SettingsData(object):
         None
         '''
         mask_nonzero = precision != 0
-        variables[mask_nonzero] = (
-            np.round(variables[mask_nonzero] / precision[mask_nonzero])
-            * precision[mask_nonzero]
-        )
+        if variables.ndim == 1:
+            variables[mask_nonzero] = (
+                np.round(variables[mask_nonzero] / precision[mask_nonzero])
+                * precision[mask_nonzero]
+            )
+        else:
+            # (n, n_vars): apply precision per column
+            variables[:, mask_nonzero] = (
+                np.round(variables[:, mask_nonzero] / precision[mask_nonzero])
+                * precision[mask_nonzero]
+            )
     
     @staticmethod
     def adjust_bounds(upp: np.ndarray, low: np.ndarray) -> None:
@@ -298,8 +305,11 @@ class SettingsProblem(object):
             raise ValueError(f'Number of output variables does not match.')
         
         # Check whether all the variables in the constraint strings are in the data settings.
+        # Only treat token as variable if it looks like an identifier (skip operators like -, +, *, etc.)
         for constraint_str in self.constraint_strings:
-            for var in constraint_str.split(' '):
+            for var in constraint_str.split():
+                if not var or not (var[0].isalpha() or var[0] == '_'):
+                    continue
                 if var not in data_settings.name_input and var not in data_settings.name_output:
                     raise ValueError(f'Variable {var} in constraint string is not in the data settings.')
         
