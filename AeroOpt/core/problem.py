@@ -91,6 +91,13 @@ class Problem(object):
         span = self.data_settings.output_upp - self.data_settings.output_low
         return span < self.data_settings.output_precision
     
+    @property
+    def critical_scaled_distance(self) -> float:
+        '''
+        Critical scaled distance for checking duplication of individuals.
+        '''
+        return self.data_settings.critical_scaled_distance
+    
     #* External evaluation of the output variable by calling run.bat/.sh.
 
     def external_run(self, folder_name: str, x: np.ndarray,
@@ -567,36 +574,44 @@ class Problem(object):
         '''
         return y[np.isin(self.problem_settings.output_type, type_list)]
     
-    def calculate_distance(self, x1: np.ndarray, x2: np.ndarray,
-                            use_scaled_x: bool = True, 
+    def calculate_scaled_distance(self, x1: np.ndarray, x2: np.ndarray,
+                            is_scaled_x: bool = False,
                             metric: str = 'euclidean') -> np.ndarray:
         '''
-        Calculate the distance between two input vectors.
+        Calculate the scaled distance between two input vectors.
         
         Parameters
         -------------
         x1, x2: ndarray [n, n_input] or [n_input]
-            input vectors
-        use_scaled_x: bool
-            if True, use the scaled input vector to calculate the distance.
+            (scaled) input vectors
+        is_scaled_x: bool
+            if True, the input vectors are already scaled.
         metric: str
             metric for distance calculation, refer to scipy.spatial.distance.cdist.
         
         Returns
         -------------
         distance: ndarray [n1, n2]
-            distance between x1 and x2, scaled to [0, 1].
+            distance between scaled x1 and scaled x2.
         '''
         if x1.ndim == 1:
             x1 = x1[np.newaxis, :]
         if x2.ndim == 1:
             x2 = x2[np.newaxis, :]
         
-        if use_scaled_x:
+        if not is_scaled_x:
             x1 = self.scale_x(x1)
             x2 = self.scale_x(x2)
             
         distance_matrix = cdist(x1, x2, metric=metric)
 
         return distance_matrix
+    
+    def is_subset_of(self, other: 'Problem') -> bool:
+        '''
+        Check if the problem is a subset of another problem.
+        '''
+        flag_1 = set(self.data_settings.name_input).issubset(other.data_settings.name_input)
+        flag_2 = set(self.data_settings.name_output).issubset(other.data_settings.name_output)
+        return flag_1 and flag_2
     

@@ -3,7 +3,7 @@ Individual definition.
 '''
 
 import numpy as np
-from typing import Tuple
+from typing import Tuple, Dict, Any
 from AeroOpt.core.problem import Problem
 from AeroOpt.core.settings import SettingsData
 from AeroOpt.core.utils import compare_ndarray
@@ -28,22 +28,31 @@ class Individual(object):
                     ID: int = None, y: np.ndarray = None):
         
         self.problem = problem
+        self.name_problem = problem.name
         
         self.x : np.ndarray = x
         self.y : np.ndarray = y
         self.ID : int = ID
-        self.gen : int = 0
-        self.group : int = -1
+
+        self.valid_evaluation : bool = True
         self.source : str = 'default'
         self.sort_type : int = 0
+        
+        #* Scaled data
+        self._scaled_x : np.ndarray = self.problem.scale_x(self.x)
+        self._scaled_y : np.ndarray = None
         
         #* Constraints
         self.constraint_violations : np.ndarray = None
         self.sum_violation : float = 0.0
         
-        #* Parameters for evolutionary algorithms
+        #* Parameters for analysis
+        self.group : int = 0
         self.crowding_distance : float = 1.0 # higher the better
         self.crowding_potential : float = 0.0 # lower the better
+        
+        #* Parameters for evolutionary algorithms
+        self.generation : int = 0
         self.pareto_rank : int = 0 # lower the better
         self.mutation_rate : float = 0.9
         self.crossover_rate : float = 0.9
@@ -53,6 +62,8 @@ class Individual(object):
                 self.y = np.array([y])
             else:
                 self.y = y.copy()
+                
+            self._scaled_y = self.problem.scale_y(self.y)
 
     def __repr__(self):
         return f"indi-{self.ID}"
@@ -141,7 +152,60 @@ class Individual(object):
                 k += 1
         return obj
 
-    def eval_constraints(self, use_another_problem: Problem = None) -> Tuple[float, np.ndarray]:
+    @property
+    def data(self) -> Dict[str, Any]:
+        '''
+        Data of this individual,
+        ndarray is converted to list for JSON serialization.
+        '''
+        if self.y is not None:
+            y = self.y.tolist()
+        else:
+            y = None
+            
+        if self.constraint_violations is not None:
+            constraint_violations = self.constraint_violations.tolist()
+        else:
+            constraint_violations = None
+        
+        data = {
+            'ID': self.ID,
+            'name_problem': self.name_problem,
+            'x': self.x.tolist(),
+            'y': y,
+            'valid_evaluation': self.valid_evaluation,
+            'source': self.source,
+            'sort_type': self.sort_type,
+            'constraint_violations': constraint_violations,
+            'sum_violation': self.sum_violation,
+            'group': self.group,
+            'generation': self.generation,
+            'crowding_distance': self.crowding_distance,
+            'crowding_potential': self.crowding_potential,
+            'pareto_rank': self.pareto_rank,
+            'mutation_rate': self.mutation_rate,
+            'crossover_rate': self.crossover_rate,
+        }
+        return data
+
+    @property
+    def scaled_x(self) -> np.ndarray:
+        '''
+        Scaled input variables of this individual.
+        '''
+        return self._scaled_x
+    
+    @property
+    def scaled_y(self) -> np.ndarray:
+        '''
+        Scaled output variables of this individual.
+        '''
+        if self._scaled_y is None:
+            self._scaled_y = self.problem.scale_y(self.y)
+        return self._scaled_y
+
+    def eval_constraints(self,
+                use_another_problem: Problem = None) -> Tuple[float, np.ndarray]:
         '''
         Evaluate constraints of this individual.
         
