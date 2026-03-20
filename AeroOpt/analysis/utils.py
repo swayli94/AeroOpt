@@ -4,7 +4,7 @@ Utility functions for analysis.
 
 import numpy as np
 from typing import Tuple
-
+from sklearn.cluster import KMeans
 
 '''
 Crowding metrics:
@@ -75,8 +75,6 @@ def calculate_potential_coefficient(
     return 0.5 * (lo + hi)
 
 
-#* Interpolation
-
 def idw_interpolation(d: np.ndarray, ys: np.ndarray) -> np.ndarray:
     '''
     Inverse distance weighted interpolation.
@@ -101,3 +99,26 @@ def idw_interpolation(d: np.ndarray, ys: np.ndarray) -> np.ndarray:
     weights /= np.sum(weights)
     return np.sum(ys * weights[:, None], axis=0)
 
+
+def clustering_kmeans(vs: np.ndarray, n_clusters: int) -> np.ndarray:
+    '''
+    Cluster the scaled variables using k-means algorithm.
+    
+    Parameters:
+    -----------
+    vs: np.ndarray [n, n_variable]
+        Scaled variables.
+    n_clusters: int
+        Number of clusters.
+    
+    Returns:
+    --------
+    cluster_labels: np.ndarray [n]
+        Labels of the clusters.
+    '''
+    # Standardize variables
+    vs_std = (vs - np.mean(vs, axis=0)) / (np.std(vs, axis=0) + 1e-8)
+    
+    kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(vs_std)
+    
+    return kmeans.labels_

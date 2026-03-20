@@ -48,7 +48,11 @@ class Individual(object):
         
         #* Parameters for analysis
         self.group : int = 0
+        
+        # Crowding distance: minimum distance to adjacent points
         self.crowding_distance : float = 1.0 # higher the better
+        
+        # Crowding potential: potential induced by all other points
         self.crowding_potential : float = 0.0 # lower the better
         
         #* Parameters for evolutionary algorithms
@@ -102,6 +106,15 @@ class Individual(object):
             y1 = self.problem.get_output_by_type(self.y, [2])
             y2 = self.problem.get_output_by_type(other.y, [2])
             return compare_ndarray(y1, y2) == -1
+
+        elif self.sort_type == 6:
+
+            if self.crowding_distance > other.crowding_distance:
+                return True
+            elif self.crowding_potential < other.crowding_potential:
+                return True
+            else:
+                return False 
 
         else:
             #* When both are invalid individuals

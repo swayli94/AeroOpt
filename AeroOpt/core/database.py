@@ -86,12 +86,13 @@ class Database(object):
         -----------
         sort_type: int
             Sort type defined in SettingsProblem.sort_type_dict.
-            - 0: default, by dominance and crowding distance
+            - 0: default, by dominance, crowding distance and potential
             - 1: sorting ID
             - 2: sorting x
             - 3: sorting y
             - 4: sorting objectives
             - 5: sorting type-2 output
+            - 6: sorting crowding metrics
         '''
         for indi in self.individuals:
             indi.sort_type = sort_type
