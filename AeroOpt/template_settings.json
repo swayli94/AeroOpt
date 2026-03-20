@@ -19,9 +19,28 @@
         "output_type": [-1],
         "constraint_strings": ["y - x"]
     },
-    "example_SettingsAlgorithm": {
-        "type": "SettingsAlgorithm",
+    "example_SettingsOptimization": {
+        "type": "SettingsOptimization",
         "name": "default",
-        "algorithm_name": "DE"
+        "resume": false,
+        "population_size": 64,
+        "max_iterations": 100,
+        "fname_db_total": "db-total.json",
+        "fname_db_elite": "db-elite.json",
+        "fname_db_population": "db-population.json",
+        "fname_db_resume": "db-resume.json",
+        "fname_log": "optimization.log",
+        "working_directory": "./",
+        "info_level_on_screen": 1,
+        "critical_potential_x": 0.2
+    },
+    "example_SettingsNSGAII": {
+        "type": "SettingsNSGAII",
+        "name": "default",
+        "name_algorithm": "NSGAII",
+        "cross_rate": 1.0,
+        "mut_rate": 1.0,
+        "pow_sbx": 20.0,
+        "pow_poly": 20.0
     }
 }

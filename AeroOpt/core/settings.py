@@ -255,18 +255,18 @@ class SettingsProblem(object):
         with open(fname_settings, 'r', encoding='utf-8') as f:
             settings = json.load(f)
             
-        settings_optimization = None
+        settings_problem = None
         for entry_name, entry_data in settings.items():
             if entry_data['type'] == 'SettingsProblem' and entry_data['name'] == self.name:
                 print(f'>>> SettingsProblem {self.name} ({entry_name}) read successfully.')
-                settings_optimization = entry_data
+                settings_problem = entry_data
 
-        if settings_optimization is None:
+        if settings_problem is None:
             raise ValueError(f'SettingsProblem {self.name} not found in {fname_settings}.')
         
-        self.name_data_settings = settings_optimization['name_data_settings']
-        self.output_type = list(map(int, settings_optimization['output_type']))
-        self.constraint_strings = list(settings_optimization['constraint_strings'])
+        self.name_data_settings = settings_problem['name_data_settings']
+        self.output_type = list(map(int, settings_problem['output_type']))
+        self.constraint_strings = list(settings_problem['constraint_strings'])
         
         return None
 
@@ -316,6 +316,120 @@ class SettingsProblem(object):
         return None
 
 
+class SettingsOptimization(object):
+    '''
+    Basic settings of optimization.
+    
+    Parameters:
+    -----------
+    name: str
+        Name of the optimization settings.
+    fname_settings: str
+        Name of the settings file.
+        Default is 'settings.json'.
+    '''
+    def __init__(self, name: str,
+            fname_settings: str = 'settings.json'):
+        
+        self.name = name
+        
+        self.resume : bool = False
+        self.population_size : int = 64
+        self.max_iterations : int = 100
+        self.fname_db_total : str = 'db-total.json'
+        self.fname_db_elite : str = 'db-elite.json'
+        self.fname_db_population : str = 'db-population.json'
+        self.fname_db_resume : str = 'db-resume.json'
+        self.fname_log : str = 'optimization.log'
+        self.working_directory : str = './'
+        self.info_level_on_screen : int = 1
+        self.critical_potential_x : float = 0.2
+        
+        self.read_settings(fname_settings)
 
-    
-    
+    def read_settings(self, fname_settings: str) -> None:
+        '''
+        Read settings from json file.
+        '''
+        if not os.path.exists(fname_settings):
+            raise FileNotFoundError(f'Settings file {fname_settings} not found.')
+        
+        with open(fname_settings, 'r', encoding='utf-8') as f:
+            settings = json.load(f)
+            
+        settings_opt= None
+        for entry_name, entry_data in settings.items():
+            if entry_data['type'] == 'SettingsOptimization' and entry_data['name'] == self.name:
+                print(f'>>> SettingsOptimization {self.name} ({entry_name}) read successfully.')
+                settings_opt = entry_data
+
+        if settings_opt is None:
+            raise ValueError(f'SettingsOptimization {self.name} not found in {fname_settings}.')
+        
+        self.resume = settings_opt['resume']
+        self.population_size = int(settings_opt['population_size'])
+        self.max_iterations = int(settings_opt['max_iterations'])
+        self.fname_db_total = str(settings_opt['fname_db_total'])
+        self.fname_db_elite = str(settings_opt['fname_db_elite'])
+        self.fname_db_population = str(settings_opt['fname_db_population'])
+        self.fname_db_resume = str(settings_opt['fname_db_resume'])
+        self.fname_log = str(settings_opt['fname_log'])
+        self.working_directory = str(settings_opt['working_directory'])
+        self.info_level_on_screen = int(settings_opt['info_level_on_screen'])
+        self.critical_potential_x = float(settings_opt['critical_potential_x'])
+        
+        return None
+
+
+class SettingsNSGAII(object):
+    '''
+    Settings of NSGAII algorithm.
+
+    Parameters:
+    -----------
+    name: str
+        Name of the NSGAII settings.
+    fname_settings: str
+        Name of the settings file.
+        Default is 'settings.json'.
+    '''
+    def __init__(self, name: str,
+            fname_settings: str = 'settings.json'):
+
+        self.name = name
+
+        self.name_algorithm: str = 'NSGAII'
+        self.cross_rate: float = 1.0
+        self.mut_rate: float = 1.0
+        self.pow_sbx: float = 20.0
+        self.pow_poly: float = 20.0
+
+        self.read_settings(fname_settings)
+
+    def read_settings(self, fname_settings: str) -> None:
+        '''
+        Read settings from json file.
+        '''
+        if not os.path.exists(fname_settings):
+            raise FileNotFoundError(f'Settings file {fname_settings} not found.')
+
+        with open(fname_settings, 'r', encoding='utf-8') as f:
+            settings = json.load(f)
+
+        settings_nsgaii = None
+        for entry_name, entry_data in settings.items():
+            if entry_data['type'] == 'SettingsNSGAII' and entry_data['name'] == self.name:
+                print(f'>>> SettingsNSGAII {self.name} ({entry_name}) read successfully.')
+                settings_nsgaii = entry_data
+
+        if settings_nsgaii is None:
+            raise ValueError(f'SettingsNSGAII {self.name} not found in {fname_settings}.')
+
+        self.name_algorithm = str(settings_nsgaii['name_algorithm'])
+        self.cross_rate = float(settings_nsgaii['cross_rate'])
+        self.mut_rate = float(settings_nsgaii['mut_rate'])
+        self.pow_sbx = float(settings_nsgaii['pow_sbx'])
+        self.pow_poly = float(settings_nsgaii['pow_poly'])
+
+        return None
+

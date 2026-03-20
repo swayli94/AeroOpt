@@ -10,6 +10,16 @@ import os
 from typing import List, Tuple
 
 
+def check_folder(folder: str) -> str:
+    '''
+    Ensure a folder exists and return its path.
+    '''
+    if folder is None or len(str(folder).strip()) == 0:
+        raise ValueError('Folder path must be a non-empty string.')
+    os.makedirs(folder, exist_ok=True)
+    return folder
+
+
 def init_log(folder_result, fname='logging.log') -> None:
     '''
     Initialize logging
@@ -25,37 +35,18 @@ def init_log(folder_result, fname='logging.log') -> None:
     f0.write('\n')
     f0.close()
     
-def log(text: str, prefix='>>> ', show_time=True, fname='logging.log') -> None:
+def log(text: str, prefix='>>> ', fname: str = 'logging.log', print_on_screen: bool = True) -> None:
     '''
     Log time and text
     '''
-    print(prefix+text)
-    
-    if fname is None:
-        return
-
-    _time = ''
-    if show_time:
-        now_time = datetime.datetime.now()
-        _time = now_time.strftime('%Y-%m-%d %H:%M:%S | ')
+    if print_on_screen:
+        print(prefix+text)
+        
+    now_time = datetime.datetime.now()
+    _time = now_time.strftime('%Y-%m-%d %H:%M:%S | ')
     
     with open(fname, 'a') as f:
         f.write(_time+prefix+text+'\n')
-
-
-def check_folder(name: str):
-    '''
-    Check if folder ./Calculation/name exists
-    '''
-    if platform.system() in 'Windows':
-        folder = '.\\Calculation\\'+name
-        exist = os.path.exists(folder)
-
-    else:
-        folder = './Calculation/'+name
-        exist = os.path.exists(folder)
-
-    return exist
 
 def compare_ndarray(x1: np.ndarray, x2: np.ndarray) -> int:
     '''

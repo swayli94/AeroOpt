@@ -139,15 +139,15 @@ class TestProblemPerturb:
 
 
 class TestProblemDistance:
-    def test_calculate_distance(self, problem):
+    def test_calculate_scaled_distance(self, problem):
         x1 = np.array([0.0])
         x2 = np.array([1.0])
-        d = problem.calculate_distance(x1, x2, use_scaled_x=True)
+        d = problem.calculate_scaled_distance(x1, x2, is_scaled_x=True)
         assert d.size == 1
         np.testing.assert_almost_equal(d.flat[0], 1.0)
         x1b = np.array([[0.0], [0.5]])
         x2b = np.array([[1.0]])
-        db = problem.calculate_distance(x1b, x2b, use_scaled_x=True)
+        db = problem.calculate_scaled_distance(x1b, x2b, is_scaled_x=True)
         assert db.shape == (2, 1)
 
 

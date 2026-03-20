@@ -26,8 +26,9 @@ class Database(object):
     database_type_dict = {
         'default':      'not specified',
         'elite':        'elite database',
-        'all':          'all individuals',
-        'population':   'population',
+        'valid':        'valid database',
+        'total':        'total database',
+        'population':   'population database',
         'surrogate':    'surrogate model',
         'diversity':    'diversity calculation',
         'intersection': 'intersection of two databases',
@@ -607,3 +608,10 @@ class Database(object):
         
         self._id_list = [indi.ID for indi in self.individuals]
         self._sorted = False
+
+    #* Evaluation
+    
+    def evaluate_individuals(self) -> None:
+        '''
+        Evaluate the individuals in the database.
+        '''

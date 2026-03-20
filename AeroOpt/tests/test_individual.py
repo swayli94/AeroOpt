@@ -22,7 +22,12 @@ def settings_path():
 def problem(settings_path):
     sd = SettingsData("default", fname_settings=settings_path)
     sp = SettingsProblem("default", sd, fname_settings=settings_path)
-    return Problem(sd, sp)
+    p = Problem(sd, sp)
+    # Individual.__init__ / __str__ 依赖 problem.name
+    p.name = sp.name
+    # Individual.objectives 依赖 problem.output_type
+    p.output_type = sp.output_type
+    return p
 
 
 @pytest.fixture
@@ -38,13 +43,11 @@ class TestIndividualBasics:
         np.testing.assert_array_almost_equal(ind.y, [0.5])
         assert ind.ID == 1
         assert ind.problem is problem
-        assert ind.gen == 0
+        assert ind.generation == 0
         assert ind.source == "default"
 
     def test_repr_str(self, ind):
         assert "1" in repr(ind)
-        # core 中 __str__ 使用 problem.name，Problem 无 name 属性，用 problem_settings.name 补上后断言
-        ind.problem.name = ind.problem.problem_settings.name
         assert "Individual" in str(ind) and "1" in str(ind)
 
     def test_y_scalar_converted(self, problem):
@@ -63,8 +66,6 @@ class TestIndividualBasics:
 
 class TestIndividualObjectives:
     def test_objectives(self, ind):
-        # core 中 objectives 使用 problem.output_type，Problem 无该属性，用 problem_settings.output_type
-        ind.problem.output_type = ind.problem.problem_settings.output_type
         obj = ind.objectives
         assert obj.shape == (1,)
         np.testing.assert_array_almost_equal(obj, [0.5])
@@ -83,8 +84,8 @@ class TestIndividualConstraints:
 
 class TestIndividualDominance:
     def test_check_dominance_same_problem(self, problem):
-        a = Individual(problem, np.array([0.2]), ID=1, y=np.array([0.2]))
-        b = Individual(problem, np.array([0.5]), ID=2, y=np.array([0.5]))
+        a = Individual(problem, np.array([0.2]), ID=1, y=np.array([0.1]))
+        b = Individual(problem, np.array([0.5]), ID=2, y=np.array([0.3]))
         a.eval_constraints()
         b.eval_constraints()
         # minimize: a better

@@ -373,6 +373,33 @@ class AnalyzeDatabase(object):
 
     #* Evaluation of other individuals
 
+    def calculate_distance_to_database(self,
+                vs: np.ndarray,
+                update_attributes: bool = True,
+                ) -> np.ndarray:
+        '''
+        Calculate the distance to the database.
+        
+        Parameters:
+        -----------
+        vs: np.ndarray [n, n_variable] or [n_variable]
+            Scaled variables of the points to be evaluated.
+        update_attributes: bool
+            If True, the data arrays, statistics, and distance matrix will be updated.
+        
+        Returns:
+        --------
+        distance_matrix: np.ndarray [n, nn]
+            Distance to all points in the database.
+        '''
+        #nn = self.size
+        if update_attributes:
+            self.update_data_arrays()
+        
+        _vs = np.atleast_2d(vs)
+        
+        return cdist(_vs, self._scaled_variables, metric=self.metric)
+
     def calculate_potential_induced_by_database(self,
                 vs: np.ndarray,
                 update_attributes: bool = True,

@@ -46,6 +46,13 @@ class Problem(object):
         return True
     
     @property
+    def name(self) -> str:
+        '''
+        Name of the problem in the settings.
+        '''
+        return self.problem_settings.name
+    
+    @property
     def n_input(self) -> int:
         '''
         Number of input variables.
