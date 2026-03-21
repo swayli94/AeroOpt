@@ -132,3 +132,40 @@ def test_sbx_crossover_and_polynomial_mutation_bounds(problem):
     assert problem.check_bounds_x(c2)
     assert problem.check_bounds_x(m1)
     assert problem.check_bounds_x(m2)
+
+
+def test_generate_candidate_individuals_requires_valid_population(problem):
+    db_valid = Database(problem, database_type="valid")
+    db_candidate = Database(problem, database_type="population")
+    with pytest.raises(RuntimeError, match="No valid individuals"):
+        NSGAII.generate_candidate_individuals(
+            db_valid, db_candidate, population_size=4, iteration=1
+        )
+
+
+def test_generate_candidate_individuals_builds_offspring(problem):
+    random.seed(123)
+    np.random.seed(123)
+    db_valid = Database(problem, database_type="valid")
+    for i, x in enumerate([0.05, 0.35, 0.65, 0.92], start=1):
+        db_valid.add_individual(_indi(problem, x, x * 0.5, i), check_duplication=False)
+
+    EvolutionaryAlgorithm.rank_pareto(db_valid, is_valid_database=True)
+
+    db_candidate = Database(problem, database_type="population")
+    NSGAII.generate_candidate_individuals(
+        db_valid,
+        db_candidate,
+        population_size=4,
+        iteration=2,
+        cross_rate=1.0,
+        pow_sbx=20.0,
+        mut_rate=1.0,
+        pow_poly=20.0,
+    )
+
+    assert db_candidate.size == 4
+    for indi in db_candidate.individuals:
+        assert indi.source == "GA"
+        assert indi.generation == 2
+        assert problem.check_bounds_x(indi.x)

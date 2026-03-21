@@ -1,6 +1,8 @@
 import os
+
 import numpy as np
 import pytest
+from openpyxl import load_workbook
 
 from AeroOpt.core.settings import SettingsData, SettingsProblem
 from AeroOpt.core.problem import Problem
@@ -9,9 +11,13 @@ from AeroOpt.core.database import Database
 
 
 @pytest.fixture(scope="module")
-def problem():
+def settings_path():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    settings_path = os.path.join(root, "template_settings.json")
+    return os.path.join(root, "template_settings.json")
+
+
+@pytest.fixture(scope="module")
+def problem(settings_path):
     sd = SettingsData("default", fname_settings=settings_path)
     sp = SettingsProblem("default", sd, fname_settings=settings_path)
     return Problem(sd, sp)
@@ -121,3 +127,78 @@ class TestDatabaseJsonIO:
         assert db2.size == 2
         assert db2.database_type == "total"
         np.testing.assert_allclose(db2.get_xs()[:, 0], [0.12, 0.56], rtol=0, atol=1e-12)
+
+
+class TestDatabaseValidation:
+    def test_invalid_database_type_raises(self, problem):
+        with pytest.raises(ValueError, match="Invalid database type"):
+            Database(problem, database_type="no-such-type")
+
+    def test_copy_from_database_requires_same_problem_instance(self, settings_path):
+        sd = SettingsData("default", fname_settings=settings_path)
+        sp = SettingsProblem("default", sd, fname_settings=settings_path)
+        p_a = Problem(sd, sp)
+        p_b = Problem(sd, sp)
+        assert p_a is not p_b
+
+        db_a = Database(p_a, database_type="population")
+        db_b = Database(p_b, database_type="population")
+        _append_direct(db_b, _indi(p_b, 0.5, 0.5, ID=1))
+
+        with pytest.raises(ValueError, match="same problem"):
+            db_a.copy_from_database(db_b)
+
+    def test_get_sub_database_both_id_and_index_raises(self, database, problem):
+        _append_direct(database, _indi(problem, 0.3, 0.3, ID=1))
+        with pytest.raises(ValueError, match="Only one of"):
+            database.get_sub_database(ID_list=[1], index_list=[0])
+
+    def test_merge_intersection_require_same_problem(self, settings_path):
+        sd = SettingsData("default", fname_settings=settings_path)
+        sp = SettingsProblem("default", sd, fname_settings=settings_path)
+        p_a = Problem(sd, sp)
+        p_b = Problem(sd, sp)
+        db_a = Database(p_a, database_type="population")
+        db_b = Database(p_b, database_type="population")
+
+        with pytest.raises(ValueError, match="same problem"):
+            db_a.merge_with_database(db_b)
+
+        with pytest.raises(ValueError, match="same problem"):
+            db_a.get_intersection_with_database(db_b)
+
+    def test_merge_with_empty_other_is_noop(self, problem):
+        db = Database(problem, database_type="population")
+        db.add_individual(_indi(problem, 0.2, 0.2, ID=1), check_duplication=False)
+        empty = Database(problem, database_type="population")
+        db.merge_with_database(empty, deepcopy=True)
+        assert db.size == 1
+
+
+class TestDatabaseEvaluateIndividuals:
+    def test_evaluate_individuals_with_mp_sets_user_func(self, problem):
+        class _FakeMPE:
+            func = None
+
+            def evaluate(self, xs, list_name=None, **kwargs):
+                n = xs.shape[0]
+                ys = np.array([[float(xs[i, 0]) * 3.0] for i in range(n)])
+                assert self.func is not None
+                return [True] * n, ys
+
+        db = Database(problem, database_type="total")
+        db.add_individual(_indi(problem, 0.2, 0.0, ID=1), check_duplication=False)
+
+        def user_func(x):
+            return True, np.array([0.0])
+
+        db.evaluate_individuals(mp_evaluation=_FakeMPE(), user_func=user_func)
+        assert db.individuals[0].valid_evaluation is True
+        np.testing.assert_allclose(db.individuals[0].y, [0.6])
+
+    def test_evaluate_individuals_raises_when_id_is_none(self, problem):
+        db = Database(problem, database_type="total")
+        indi = Individual(problem, x=np.array([0.1]), ID=None)
+        _append_direct(db, indi)
+        with pytest.raises(ValueError, match="ID is None"):
+            db.evaluate_individuals(mp_evaluation=None, user_func=lambda x: (True, np.array([0.0])))

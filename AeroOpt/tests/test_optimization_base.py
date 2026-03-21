@@ -245,3 +245,111 @@ def test_preprocess_adjust_x_feasibility_length_mismatch_raises():
     xs = np.array([[0.1], [0.2]], dtype=float)
     with pytest.raises(ValueError, match="Length mismatch"):
         pp._adjust_x_values_by_valid_database(xs, [True, True, False])
+
+
+class _AnalyzeStub:
+    def __init__(self, database):
+        self.database = database
+
+
+def test_update_total_and_valid_keeps_db_valid_instance_and_analyze_pointers(
+    problem, optimization_settings,
+):
+    """In-place merge + copy_from_database: same db_total/db_valid objects, analyzers stay valid."""
+    opt = _make_opt(problem, optimization_settings)
+    opt.analyze_total = _AnalyzeStub(opt.db_total)
+    opt.analyze_valid = _AnalyzeStub(opt.db_valid)
+
+    id_total_before = id(opt.db_total)
+    id_valid_before = id(opt.db_valid)
+
+    opt.db_candidate = Database(problem, database_type="population")
+    cand = Individual(problem, x=np.array([0.55]), ID=5)
+    cand.valid_evaluation = True
+    _append_direct(opt.db_candidate, cand)
+
+    opt.update_total_and_valid_with_candidate()
+
+    assert id(opt.db_total) == id_total_before
+    assert id(opt.db_valid) == id_valid_before
+    assert opt.analyze_total.database is opt.db_total
+    assert opt.analyze_valid.database is opt.db_valid
+    assert opt.db_total.size == 1
+    assert opt.analyze_total.database.size == 1
+    assert opt.analyze_valid.database.size == 1
+
+
+def test_update_total_and_valid_repairs_mispointed_analyze_wrong_database(
+    problem, optimization_settings,
+):
+    """If analyze_* pointed at another Database, they are re-bound to db_total / db_valid."""
+    opt = _make_opt(problem, optimization_settings)
+    wrong_db = Database(problem, database_type="population")
+    opt.analyze_total = _AnalyzeStub(wrong_db)
+    opt.analyze_valid = _AnalyzeStub(wrong_db)
+
+    opt.db_candidate = Database(problem, database_type="population")
+    cand = Individual(problem, x=np.array([0.33]), ID=7)
+    cand.valid_evaluation = True
+    _append_direct(opt.db_candidate, cand)
+
+    opt.update_total_and_valid_with_candidate()
+
+    assert opt.analyze_total.database is opt.db_total
+    assert opt.analyze_valid.database is opt.db_valid
+    assert opt.analyze_total.database is not wrong_db
+    assert opt.analyze_valid.database is not wrong_db
+    assert opt.db_total.size == 1
+    assert wrong_db.size == 0
+
+
+def test_update_total_and_valid_analyze_none_does_not_raise(problem, optimization_settings):
+    opt = _make_opt(problem, optimization_settings)
+    opt.analyze_total = None
+    opt.analyze_valid = None
+
+    opt.db_candidate = Database(problem, database_type="population")
+    cand = Individual(problem, x=np.array([0.44]), ID=8)
+    cand.valid_evaluation = True
+    _append_direct(opt.db_candidate, cand)
+
+    opt.update_total_and_valid_with_candidate()
+    assert opt.db_total.size == 1
+
+
+def test_update_total_and_valid_repairs_analyze_valid_only_when_total_ok(
+    problem, optimization_settings,
+):
+    opt = _make_opt(problem, optimization_settings)
+    opt.analyze_total = _AnalyzeStub(opt.db_total)
+    wrong_db = Database(problem, database_type="population")
+    opt.analyze_valid = _AnalyzeStub(wrong_db)
+
+    opt.db_candidate = Database(problem, database_type="population")
+    cand = Individual(problem, x=np.array([0.66]), ID=9)
+    cand.valid_evaluation = True
+    _append_direct(opt.db_candidate, cand)
+
+    opt.update_total_and_valid_with_candidate()
+
+    assert opt.analyze_total.database is opt.db_total
+    assert opt.analyze_valid.database is opt.db_valid
+
+
+def test_update_total_and_valid_repairs_analyze_total_only_when_valid_ok(
+    problem, optimization_settings,
+):
+    opt = _make_opt(problem, optimization_settings)
+    wrong_db = Database(problem, database_type="population")
+    opt.analyze_total = _AnalyzeStub(wrong_db)
+    opt.analyze_valid = _AnalyzeStub(opt.db_valid)
+
+    opt.db_candidate = Database(problem, database_type="population")
+    cand = Individual(problem, x=np.array([0.77]), ID=10)
+    cand.valid_evaluation = True
+    _append_direct(opt.db_candidate, cand)
+
+    opt.update_total_and_valid_with_candidate()
+
+    assert opt.analyze_total.database is opt.db_total
+    assert opt.analyze_valid.database is opt.db_valid

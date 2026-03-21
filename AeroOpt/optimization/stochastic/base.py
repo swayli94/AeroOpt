@@ -6,12 +6,10 @@ from typing import List, Callable
 import numpy as np
 
 from AeroOpt.core import (
-    Database, Problem, 
+    Database, Problem, Individual,
     SettingsOptimization, MultiProcessEvaluation
 )
-from AeroOpt.optimization.base import (
-    OptBaseFramework, PreProcess, PostProcess
-)
+from AeroOpt.optimization.base import OptBaseFramework
 
 
 class EvolutionaryAlgorithm(object):
@@ -502,29 +500,25 @@ class OptEvolutionaryFramework(OptBaseFramework):
 
     def select_elite_from_valid(self) -> None:
         '''
-        Select elite set from valid database.
+        Select elite individuals from the valid database.
         '''
         if self.db_valid.size <= 0:
-            self.db_elite = Database(self.problem, database_type="elite")
+            self.db_elite.empty_database()
             return
 
         fronts = EvolutionaryAlgorithm.faster_non_dominated_ranking(
             db=self.db_valid, is_valid_database=True)
         
+        if len(fronts) <= 0 or len(fronts[0]) <= 0:
+            self.db_elite.empty_database()
+            return
+        
         EvolutionaryAlgorithm.assign_crowding_distance(
             db=self.db_valid, fronts=fronts)
 
-        n_take = min(self.population_size, self.db_valid.size)
-        selected_indices = EvolutionaryAlgorithm.select_population_indices(
-            db=self.db_valid, fronts=fronts, population_size=n_take)
-        
         sub_valid = self.db_valid.get_sub_database(
-            index_list=selected_indices, deepcopy=True)
-        sub_valid.sort_database(sort_type=0)
+            index_list=fronts[0], deepcopy=True)
+        
+        self.db_elite.copy_from_database(sub_valid)
+        self.db_elite.sort_database(sort_type=0)
 
-        if len(fronts) > 0 and len(fronts[0]) > 0:
-            self.db_elite = sub_valid.get_sub_database(
-                index_list=fronts[0], deepcopy=True)
-            self.db_elite.sort_database(sort_type=0)
-        else:
-            self.db_elite = Database(self.problem, database_type="elite")

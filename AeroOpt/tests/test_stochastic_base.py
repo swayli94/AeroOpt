@@ -98,3 +98,23 @@ def test_evolutionary_algorithm_str_repr():
     ea = EvolutionaryAlgorithm("NSGA-II")
     assert str(ea) == "NSGA-II"
     assert repr(ea) == "NSGA-II"
+
+
+def test_save_elite_clears_elite_when_source_empty(problem):
+    db = Database(problem, database_type="valid")
+    elite = Database(problem, database_type="elite")
+    elite.add_individual(Individual(problem, x=np.array([0.1]), y=np.array([0.1]), ID=99))
+    EvolutionaryAlgorithm.save_elite(db, elite, is_db_valid=False)
+    assert elite.size == 0
+
+
+def test_copy_from_database_requires_same_problem_instance(settings_path):
+    sd = SettingsData("default", fname_settings=settings_path)
+    sp = SettingsProblem("default", sd, fname_settings=settings_path)
+    p_a = Problem(sd, sp)
+    p_b = Problem(sd, sp)
+    db_a = Database(p_a, database_type="population")
+    db_b = Database(p_b, database_type="population")
+    db_b.add_individual(Individual(p_b, x=np.array([0.5]), y=np.array([0.2]), ID=1))
+    with pytest.raises(ValueError, match="same problem"):
+        db_a.copy_from_database(db_b)

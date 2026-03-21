@@ -77,6 +77,37 @@ class Database(object):
         
     #* Basic functions
     
+    def empty_database(self) -> None:
+        '''
+        Empty the database.
+        '''
+        self.individuals = []
+        self._id_list = []
+        self._sorted = False
+    
+    def copy_from_database(self, other: 'Database', deepcopy: bool = True) -> None:
+        '''
+        Copy the database from another database,
+        but the `database_type` is not changed.
+        
+        Parameters:
+        -----------
+        other: Database
+            Another database to copy from.
+        deepcopy: bool
+            If True, the individuals are copied.
+        '''
+        if other.problem is not self.problem:
+            raise ValueError('Databases must share the same problem instance')
+        
+        if deepcopy:
+            self.individuals = [copy.deepcopy(indi) for indi in other.individuals]
+        else:
+            self.individuals = other.individuals
+
+        self.update_id_list()
+        self._sorted = other._sorted
+    
     def update_id_list(self) -> None:
         '''
         Update the list of IDs in the order of individuals.

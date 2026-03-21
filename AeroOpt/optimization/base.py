@@ -222,18 +222,52 @@ class OptBaseFramework(object):
         self.iteration = 0
         self.log(f'Resume from [{fname}], size = {self.db_total.size}.', level=0)
 
-    #! Needs to be implemented
     def initialize_population(self) -> None:
         '''
-        Initialize the initial population database `db_candidate`,
-        including:
-        - generation (Design of Experiments, perturbation, user-defined, etc.)
-        - pre-processing
-        - evaluation
-        - post-processing
+        Initialize the initial population `db_candidate` database:
+
+        - generate initial individuals (Design of Experiments, perturbation, user-defined, etc.)
+        - pre-processing of `db_candidate`
+        - evaluation of `db_candidate`
+        - update `db_total` and `db_valid`
+        - post-processing of `db_total` and `db_valid`
         '''
-        self.iteration = 1
-        raise NotImplementedError('Not implemented.')
+        t0 = time.perf_counter()
+        self.log(f'Initial population preparation started.', level=1)
+        
+        self.generate_initial_individuals()
+        
+        if self.pre_process is not None:
+            self.pre_process.apply()
+            
+        self.evaluate_db_candidate()
+        
+        self.update_total_and_valid_with_candidate()
+        
+        if self.post_process is not None:
+            self.post_process.apply()
+            
+        self.log(f"Initial population prepared: valid={self.db_valid.size}.", level=1)
+        
+    #TODO: Can be adapted
+    def generate_initial_individuals(self) -> None:
+        '''
+        Generate the initial individuals for optimization.
+        
+        - this is the default implementation with random sampling.
+        - can be adapted to other methods, e.g., Design of Experiments, perturbation, user-defined, etc.
+        - the initial individuals are stored in `db_candidate` database.
+        '''
+        xs = np.random.rand(self.population_size, self.problem.n_input)
+        xs = self.problem.scale_x(xs, reverse=True)
+        
+        self.db_candidate.empty_database()
+        for x in xs:
+            indi = Individual(problem=self.problem, x=x)
+            indi.source = "random"
+            indi.generation = 0
+            self.db_candidate.add_individual(indi, check_duplication=True,
+                                            check_bounds=True, deepcopy=False)
 
     #TODO: Can be adapted
     def termination(self) -> bool:
@@ -252,13 +286,14 @@ class OptBaseFramework(object):
     #! Needs to be implemented
     def generate_candidate_individuals(self) -> None:
         '''
-        Generate `db_candidate` database from `db_valid` database,
-        including:
-        - selection of the parent database
+        Generate candidate individuals during the optimization,
+        which are stored in `db_candidate` database before evaluation.
+        The `db_candidate` database is generated from `db_valid` database:
+        
+        - select parent database from `db_valid`
         - evolution (crossover, mutation, etc.) of the parent database
-        - user-defined new individuals
-        - search from surrogate models
-        - assignment of new IDs
+        - add user-defined new individuals
+        - search new candidates from surrogate models
         '''
         raise NotImplementedError('Not implemented.')
 
@@ -282,33 +317,32 @@ class OptBaseFramework(object):
         - Copy the total database to the valid database.
         - Eliminate invalid individuals from the valid database.
         '''
-        t0 = time.perf_counter()
         n_previous_total = self.db_total.size
         n_previous_valid = self.db_valid.size
         
         self.db_total.merge_with_database(self.db_candidate, deepcopy=True)
 
-        self.db_valid = copy.deepcopy(self.db_total)
-        self.db_valid.database_type = 'valid'
+        self.db_valid.copy_from_database(self.db_total, deepcopy=True)
         self.db_valid.eliminate_invalid_individuals()
-        
-        n_added_total = self.db_total.size - n_previous_total
-        n_added_valid = self.db_valid.size - n_previous_valid
 
-        # Keep analysis helpers synchronized with latest database objects.
+        # `db_total` / `db_valid` objects are not reassigned here (in-place merge + copy_into),
+        # but keep analyzers pinned to the canonical databases in case they were ever pointed
+        # elsewhere (e.g. stale `db_candidate`, or legacy code that swapped `db_valid`).
         if self.analyze_total is not None:
             self.analyze_total.database = self.db_total
         if self.analyze_valid is not None:
             self.analyze_valid.database = self.db_valid
         
-        t1 = time.perf_counter()
+        n_added_total = self.db_total.size - n_previous_total
+        n_added_valid = self.db_valid.size - n_previous_valid
+        
         self.log(f'Add {n_added_total} individuals to total, updated to {self.db_total.size}.', level=1)
         self.log(f'Add {n_added_valid} individuals to valid, updated to {self.db_valid.size}.', level=1)
 
     #! Needs to be implemented
     def select_elite_from_valid(self) -> None:
         '''
-        Select valid and elite individuals from the total database.
+        Select elite individuals from the valid database.
         '''
         raise NotImplementedError('Not implemented.')
 

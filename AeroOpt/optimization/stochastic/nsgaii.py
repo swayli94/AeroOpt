@@ -169,6 +169,74 @@ class NSGAII(EvolutionaryAlgorithm):
             
         return selected
 
+    @staticmethod
+    def generate_candidate_individuals(
+            db_valid: Database, db_candidate: Database,
+            population_size: int, iteration: int,
+            cross_rate: float = 1.0, pow_sbx: float = 20.0,
+            mut_rate: float = 1.0, pow_poly: float = 20.0) -> None:
+        '''
+        Generate candidate individuals from the valid database.
+        
+        Parameters:
+        -----------
+        db_valid: Database
+            Valid database.
+        db_candidate: Database
+            Candidate database.
+        population_size: int
+            Population size.
+        iteration: int
+            Iteration number.
+        cross_rate: float
+            Crossover rate.
+        pow_sbx: float
+            Simulated binary crossover power.
+        mut_rate: float
+            Mutation rate.
+        pow_poly: float
+            Polynomial mutation power.
+        
+        Returns:
+        --------
+        db_candidate: Database
+            Candidate database.
+        '''
+        if db_valid.size <= 0:
+            raise RuntimeError("No valid individuals available for NSGA-II evolution.")
+
+        mating_population = NSGAII.binary_tournament_selection(
+            pool=db_valid, n_select=population_size)
+        
+        db_candidate.empty_database()
+
+        n_pairs = int(np.ceil(population_size / 2))
+        
+        for i in range(n_pairs):
+            i1 = 2 * i
+            i2 = min(2 * i + 1, population_size - 1)
+            p1 = mating_population[i1]
+            p2 = mating_population[i2]
+
+            x1, x2 = NSGAII.sbx_crossover(p1.x, p2.x, problem=db_candidate.problem,
+                cross_rate=cross_rate, pow_sbx=pow_sbx)
+
+            x1 = NSGAII.polynomial_mutation(x1, problem=db_candidate.problem,
+                                            mut_rate=mut_rate, pow_poly=pow_poly)
+
+            x2 = NSGAII.polynomial_mutation(x2, problem=db_candidate.problem,
+                                            mut_rate=mut_rate, pow_poly=pow_poly)
+
+            children = [x1, x2]
+            for k, x_child in enumerate(children):
+                if db_candidate.size >= population_size:
+                    break
+                indi = Individual(problem=db_candidate.problem, x=x_child)
+                indi.source = "GA"
+                indi.generation = iteration
+                db_candidate.add_individual(indi, check_duplication=True,
+                                        check_bounds=True, deepcopy=False)
+
 
 class OptNSGAII(OptEvolutionaryFramework):
     '''
@@ -179,9 +247,7 @@ class OptNSGAII(OptEvolutionaryFramework):
         optimization_settings: SettingsOptimization,
         evolutionary_algorithm: NSGAII,
         user_func: Callable = None,
-        mp_evaluation: MultiProcessEvaluation = None,
-        pre_process: PreProcess = None,
-        post_process: PostProcess = None,
+        mp_evaluation: MultiProcessEvaluation = None
         ):
         
         super().__init__(
@@ -189,122 +255,22 @@ class OptNSGAII(OptEvolutionaryFramework):
             optimization_settings=optimization_settings,
             evolutionary_algorithm=evolutionary_algorithm,
             user_func=user_func,
-            mp_evaluation=mp_evaluation,
-            pre_process=pre_process,
-            post_process=post_process)
+            mp_evaluation=mp_evaluation)
     
-    @property
-    def cross_rate(self) -> float:
-        '''
-        Crossover rate.
-        '''
-        return self.evolutionary_algorithm.settings.cross_rate
-    
-    @property
-    def mute_rate(self) -> float:
-        '''
-        Mutation rate scaled by the number of input variables.
-        '''
-        return self.evolutionary_algorithm.settings.mut_rate / max(self.problem.n_input, 1)
-    
-    @property
-    def pow_poly(self) -> float:
-        '''
-        Polynomial mutation power.
-        '''
-        return self.evolutionary_algorithm.settings.pow_poly
-
-    @property
-    def pow_sbx(self) -> float:
-        '''
-        Simulated binary crossover power.
-        '''
-        return self.evolutionary_algorithm.settings.pow_sbx
-        
     #* Main procedures
-        
-    def initialize_population(self) -> None:
-        '''
-        Initialize population if no resumed database exists.
-        '''
-        self.iteration = 1
-
-        if self.db_total.size <= 0:
-            
-            xs = np.random.rand(self.population_size, self.problem.n_input)
-            xs = self.problem.scale_x(xs, reverse=True)
-            
-            self.db_candidate = Database(self.problem, database_type="population")
-            for x in xs:
-                indi = Individual(self.problem, x=np.array(x, dtype=float))
-                indi.source = "random"
-                indi.generation = self.iteration
-                self.db_candidate.add_individual(
-                    indi,
-                    check_duplication=False,
-                    check_bounds=True,
-                    deepcopy=False,
-                )
-
-            if self.pre_process is not None:
-                self.pre_process.apply()
-            self.evaluate_db_candidate()
-            if self.post_process is not None:
-                self.post_process.apply()
-
-        self.select_elite_from_valid()
-        self.log(f"Initial population prepared: valid={self.db_valid.size}", level=1)
-
+    
     def generate_candidate_individuals(self) -> None:
         '''
         Generate offspring from current valid population.
         '''
-        if self.db_valid.size <= 0:
-            raise RuntimeError("No valid individuals available for NSGA-II evolution.")
-
-        mating_population = NSGAII.binary_tournament_selection(
-            pool=self.db_valid, n_select=self.population_size)
-        self.db_candidate = Database(self.problem, database_type="population")
-
-        n_pairs = int(np.ceil(self.population_size / 2))
-        for i in range(n_pairs):
-            i1 = 2 * i
-            i2 = min(2 * i + 1, self.population_size - 1)
-            p1 = mating_population[i1]
-            p2 = mating_population[i2]
-
-            x1, x2 = NSGAII.sbx_crossover(
-                p1.x,
-                p2.x,
-                self.problem,
-                cross_rate=self.cross_rate,
-                pow_sbx=self.pow_sbx,
-            )
-
-            x1 = NSGAII.polynomial_mutation(
-                x1,
-                self.problem,
-                mut_rate=self.mute_rate,
-                pow_poly=self.pow_poly,
-            )
-            x2 = NSGAII.polynomial_mutation(
-                x2,
-                self.problem,
-                mut_rate=self.mute_rate,
-                pow_poly=self.pow_poly,
-            )
-
-            children = [x1, x2]
-            for k, x_child in enumerate(children):
-                if self.db_candidate.size >= self.population_size:
-                    break
-                indi = Individual(self.problem, x=np.array(x_child, dtype=float))
-                indi.source = "GA"
-                indi.generation = self.iteration
-                self.db_candidate.add_individual(
-                    indi,
-                    check_duplication=True,
-                    check_bounds=True,
-                    deepcopy=False,
-                )
-
+        mute_rate = self.evolutionary_algorithm.settings.mut_rate / max(self.problem.n_input, 1)
+        
+        NSGAII.generate_candidate_individuals(
+            db_valid=self.db_valid,
+            db_candidate=self.db_candidate,
+            population_size=self.population_size, 
+            iteration=self.iteration,
+            cross_rate=self.evolutionary_algorithm.settings.cross_rate,
+            pow_sbx=self.evolutionary_algorithm.settings.pow_sbx,
+            mut_rate=mute_rate,
+            pow_poly=self.evolutionary_algorithm.settings.pow_poly)
