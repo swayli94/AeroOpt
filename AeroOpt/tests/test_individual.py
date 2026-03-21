@@ -22,12 +22,7 @@ def settings_path():
 def problem(settings_path):
     sd = SettingsData("default", fname_settings=settings_path)
     sp = SettingsProblem("default", sd, fname_settings=settings_path)
-    p = Problem(sd, sp)
-    # Individual.__init__ / __str__ 依赖 problem.name
-    p.name = sp.name
-    # Individual.objectives 依赖 problem.output_type
-    p.output_type = sp.output_type
-    return p
+    return Problem(sd, sp)
 
 
 @pytest.fixture

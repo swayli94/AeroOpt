@@ -398,11 +398,11 @@ class SettingsNSGAII(object):
 
         self.name = name
 
-        self.name_algorithm: str = 'NSGAII'
         self.cross_rate: float = 1.0
         self.mut_rate: float = 1.0
         self.pow_sbx: float = 20.0
         self.pow_poly: float = 20.0
+        self.reserve_ratio: float = 0.3
 
         self.read_settings(fname_settings)
 
@@ -425,11 +425,11 @@ class SettingsNSGAII(object):
         if settings_nsgaii is None:
             raise ValueError(f'SettingsNSGAII {self.name} not found in {fname_settings}.')
 
-        self.name_algorithm = str(settings_nsgaii['name_algorithm'])
         self.cross_rate = float(settings_nsgaii['cross_rate'])
         self.mut_rate = float(settings_nsgaii['mut_rate'])
         self.pow_sbx = float(settings_nsgaii['pow_sbx'])
         self.pow_poly = float(settings_nsgaii['pow_poly'])
-
+        self.reserve_ratio = float(settings_nsgaii['reserve_ratio'])
+        
         return None
 

@@ -5,9 +5,12 @@ import os
 import numpy as np
 import time
 
+from typing import Callable
+
 from AeroOpt.core import (
     Problem, Database,
     SettingsOptimization,
+    MultiProcessEvaluation,
     init_log, log
 )
 from AeroOpt.analysis.analyze_database import AnalyzeDatabase
@@ -23,19 +26,34 @@ class OptBaseFramework(object):
         Problem for optimization.
     optimization_settings: SettingsOptimization
         Settings of the optimization.
+    user_func: Callable
+        User-defined function to evaluate the individuals.
+        If None, use external evaluation script.
+    mp_evaluation: MultiProcessEvaluation
+        Multi-process evaluation object defined in the entrance of the entire program.
+        If None, use serial evaluation.
     pre_process: PreProcess
         Pre-processing of the `db_candidate` database to be evaluated.
     post_process: PostProcess
         Post-processing of the `db_candidate` database after evaluation.
+        
+    Example:
+    ---------
+    >>> def user_func(x: np.ndarray, **kwargs) -> Tuple[bool, np.ndarray]:
+    >>>     return True, np.array([np.sum(x**2)])
     '''
     def __init__(self, problem: Problem,
             optimization_settings: SettingsOptimization,
+            user_func: Callable = None,
+            mp_evaluation: MultiProcessEvaluation = None,
             pre_process: 'PreProcess' = None,
             post_process: 'PostProcess' = None):
         
         self.problem = problem
         self.optimization_settings = optimization_settings
 
+        self.user_func : Callable = user_func
+        self.mp_evaluation : MultiProcessEvaluation = mp_evaluation
         self.pre_process : 'PreProcess' = pre_process
         self.post_process : 'PostProcess' = post_process
         
@@ -177,6 +195,7 @@ class OptBaseFramework(object):
         self.iteration = 0
         self.log(f'Resume from [{fname}], size = {self.db_total.size}.', level=0)
 
+    #! Needs to be implemented
     def initialize_population(self) -> None:
         '''
         Initialize the initial population database `db_candidate`,
@@ -189,18 +208,21 @@ class OptBaseFramework(object):
         self.iteration = 1
         raise NotImplementedError('Not implemented.')
 
+    #TODO: Can be adapted
     def termination(self) -> bool:
         '''
         Check if the optimization should be terminated.
         '''
         return self.iteration >= self.max_iterations
 
+    #TODO: Can be adapted
     def update_parameters(self) -> None:
         '''
         Update settings and parameters of the optimization.
         '''
         return None
     
+    #! Needs to be implemented
     def generate_candidate_individuals(self) -> None:
         '''
         Generate `db_candidate` database from `db_valid` database,
@@ -213,6 +235,7 @@ class OptBaseFramework(object):
         '''
         raise NotImplementedError('Not implemented.')
 
+    #! Needs to be implemented
     def select_valid_elite_from_total(self) -> None:
         '''
         Select valid and elite individuals from the total database.
@@ -226,7 +249,8 @@ class OptBaseFramework(object):
         '''
         t0 = time.perf_counter()
         
-        self.db_candidate.evaluate_individuals()
+        self.db_candidate.evaluate_individuals(mp_evaluation=self.mp_evaluation,
+                                            user_func=self.user_func)
         
         self.db_total.merge_with_database(self.db_candidate, deepcopy=True)
 

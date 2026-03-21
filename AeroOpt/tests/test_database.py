@@ -14,10 +14,7 @@ def problem():
     settings_path = os.path.join(root, "template_settings.json")
     sd = SettingsData("default", fname_settings=settings_path)
     sp = SettingsProblem("default", sd, fname_settings=settings_path)
-    p = Problem(sd, sp)
-    p.name = sp.name
-    p.output_type = sp.output_type
-    return p
+    return Problem(sd, sp)
 
 
 @pytest.fixture
@@ -102,7 +99,7 @@ class TestDatabaseSubAndMerge:
 
 class TestDatabaseJsonIO:
     def test_output_and_read_json(self, problem, tmp_path):
-        db = Database(problem, database_type="all")
+        db = Database(problem, database_type="total")
         _append_direct(db, _indi(problem, 0.12, 0.34, ID=3))
         _append_direct(db, _indi(problem, 0.56, 0.78, ID=4))
         f = tmp_path / "db.json"
@@ -111,5 +108,5 @@ class TestDatabaseJsonIO:
         db2 = Database(problem, database_type="default")
         db2.read_database_json(str(f))
         assert db2.size == 2
-        assert db2.database_type == "all"
+        assert db2.database_type == "total"
         np.testing.assert_allclose(db2.get_xs()[:, 0], [0.12, 0.56], rtol=0, atol=1e-12)

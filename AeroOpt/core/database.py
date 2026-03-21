@@ -6,9 +6,10 @@ import numpy as np
 import json
 import copy
 
-from typing import List, Tuple
+from typing import List, Tuple, Callable
 from AeroOpt.core.individual import Individual
 from AeroOpt.core.problem import Problem
+from AeroOpt.core.mpEvaluation import MultiProcessEvaluation
 
 
 class Database(object):
@@ -611,7 +612,98 @@ class Database(object):
 
     #* Evaluation
     
-    def evaluate_individuals(self) -> None:
+    def evaluate_individuals(self,
+                    mp_evaluation: MultiProcessEvaluation = None,
+                    user_func: Callable = None) -> None:
         '''
         Evaluate the individuals in the database.
+        
+        Parameters:
+        -----------
+        mp_evaluation: MultiProcessEvaluation
+            Multi-process evaluation object.
+            If None, use serial evaluation.
+        user_func: Callable
+            User-defined function to evaluate the individuals.
+            If None, use external evaluation script.
+        
+        Example:
+        ---------
+        >>> def user_func(x: np.ndarray, **kwargs) -> Tuple[bool, np.ndarray]:
+        >>>     return True, np.array([np.sum(x**2)])
+        
+        Returns:
+        --------
+        None
         '''
+        if self.size <= 0:
+            return None
+
+        # Define folder names for external evaluation.
+        xs = np.zeros((self.size, self.problem.n_input))
+        list_name = []
+        for i, indi in enumerate(self.individuals):
+            xs[i, :] = indi.x
+            if indi.ID is None:
+                raise ValueError('Individual ID is None')
+            list_name.append(str(indi.ID))
+
+        # Evaluate individuals.
+        if mp_evaluation is not None:
+            # Use mpEvaluation for both user_func and external_run modes.
+            if callable(user_func):
+                mp_evaluation.func = user_func
+                list_succeed, ys = mp_evaluation.evaluate(
+                    xs, list_name=None)
+            else:
+                mp_evaluation.func = None
+                list_succeed, ys = mp_evaluation.evaluate(
+                    xs, list_name=list_name, prob=self.problem)
+                
+            if ys.shape != (self.size, self.problem.n_output):
+                raise ValueError(f'Invalid ys shape: {ys.shape} != [{self.size}, {self.problem.n_output}]')
+                
+        else:
+            # Use serial evaluation.
+            ys = np.zeros((self.size, self.problem.n_output))
+            list_succeed = [False for _ in range(self.size)]
+            
+            for i, indi in enumerate(self.individuals):
+                
+                succeed = False
+
+                if callable(user_func):
+                    try:
+                        succeed, y = user_func(indi.x)
+                    except Exception as e:
+                        print(f'    [user_func] failed for ID={indi.ID}: {e}')
+                else:
+                    succeed, y = self.problem.external_run(list_name[i], indi.x)
+
+                if not succeed:
+                    y = np.zeros(self.problem.n_output, dtype=float)
+                elif not isinstance(y, np.ndarray):
+                    raise ValueError(f'Invalid y type for ID={indi.ID}: {type(y)}')
+
+                list_succeed[i] = succeed
+                ys[i, :] = y
+
+        # Update individuals.
+        for i, indi in enumerate(self.individuals):
+            
+            y = ys[i, :]
+
+            if list_succeed[i]:
+                indi.y = y.copy()
+                indi._scaled_y = self.problem.scale_y(indi.y)
+                indi.valid_evaluation = True
+                indi.eval_constraints()
+            else:
+                
+                indi.y = None
+                indi._scaled_y = None
+                indi.valid_evaluation = False
+                indi.constraint_violations = None
+                indi.sum_violation = np.inf
+
+        return None

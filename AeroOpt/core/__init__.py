@@ -13,6 +13,7 @@ from AeroOpt.core.settings import (
 from AeroOpt.core.utils import (
     init_log, log, check_folder, compare_ndarray,
 )
+from AeroOpt.core.mpEvaluation import MultiProcessEvaluation
 
 __all__ = [
     'SettingsData',
@@ -22,8 +23,9 @@ __all__ = [
     'Problem',
     'Individual',
     'Database',
+    'MultiProcessEvaluation',
     'init_log',
     'log',
     'check_folder',
-    'compare_ndarray',
+    'compare_ndarray'
 ]

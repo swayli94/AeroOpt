@@ -42,7 +42,9 @@ class TestMultiProcessEvaluationInit:
         assert mp.func is not None
         assert mp.n_process is None
 
-    def test_init_without_func_requires_runfiles(self):
-        # func=None 时会检查 Runfiles 目录，没有则抛异常
-        with pytest.raises(Exception, match="Runfiles|run.bat|run.sh"):
-            MultiProcessEvaluation(1, 1, func=None)
+    def test_init_without_func_evaluate_requires_external_args(self):
+        # __init__ 允许 func=None；无 func 时 evaluate 必须提供 list_name 与 prob
+        mp = MultiProcessEvaluation(1, 1, func=None)
+        xs = np.array([[1.0]])
+        with pytest.raises(Exception, match="list of working folder"):
+            mp.evaluate(xs)

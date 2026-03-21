@@ -37,10 +37,10 @@
     "example_SettingsNSGAII": {
         "type": "SettingsNSGAII",
         "name": "default",
-        "name_algorithm": "NSGAII",
         "cross_rate": 1.0,
         "mut_rate": 1.0,
         "pow_sbx": 20.0,
-        "pow_poly": 20.0
+        "pow_poly": 20.0,
+        "reserve_ratio": 0.3
     }
 }

@@ -7,7 +7,7 @@ import numpy as np
 import platform
 import os
 
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 
 def check_folder(folder: str) -> str:
@@ -35,17 +35,20 @@ def init_log(folder_result, fname='logging.log') -> None:
     f0.write('\n')
     f0.close()
     
-def log(text: str, prefix='>>> ', fname: str = 'logging.log', print_on_screen: bool = True) -> None:
+def log(text: str, prefix='>>> ', fname: Optional[str] = 'logging.log', print_on_screen: bool = True) -> None:
     '''
-    Log time and text
+    Log time and text. If ``fname`` is None, only print to screen when ``print_on_screen`` is True.
     '''
     if print_on_screen:
         print(prefix+text)
         
+    if fname is None:
+        return
+
     now_time = datetime.datetime.now()
     _time = now_time.strftime('%Y-%m-%d %H:%M:%S | ')
     
-    with open(fname, 'a') as f:
+    with open(fname, 'a', encoding='utf-8') as f:
         f.write(_time+prefix+text+'\n')
 
 def compare_ndarray(x1: np.ndarray, x2: np.ndarray) -> int:

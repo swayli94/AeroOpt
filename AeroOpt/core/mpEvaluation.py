@@ -10,13 +10,13 @@ ProcessPoolExecutor:
     https://docs.python.org/3/library/concurrent.futures.html
 
 '''
-import os
 import numpy as np
 import time
 import concurrent
 import concurrent.futures
 from concurrent.futures import as_completed
 from AeroOpt.core.problem import Problem
+from typing import List, Callable
 
 
 class MultiProcessEvaluation():
@@ -68,8 +68,8 @@ class MultiProcessEvaluation():
     >>> # ys: ndarray [n, dim_output]
     >>> # list_succeed: list [bool], length is n
     '''
-    def __init__(self, dim_input: int, dim_output: int, func=None, 
-                    n_process=None, information=True, timeout=None):
+    def __init__(self, dim_input: int, dim_output: int, func: Callable = None, 
+                    n_process: int = None, information: bool = True, timeout: float = None):
         '''
         Using concurrent.futures.ProcessPoolExecutor as executor
 
@@ -98,10 +98,7 @@ class MultiProcessEvaluation():
         self.information = information
         self.timeout = timeout
 
-        if self.func is None:
-            self.external_run(None, None, None, initialize=True)
-        
-    def external_run(self, name: str, x: np.ndarray, prob: Problem, initialize=False):
+    def external_run(self, name: str, x: np.ndarray, prob: Problem):
         '''
         External calculation by calling run.bat/.sh.
         
@@ -113,13 +110,8 @@ class MultiProcessEvaluation():
             name of the current running folder, the working folder is ./Calculation/name.
         x: ndarray [dim_input]
             function input
-        information: bool
-            whether print information on screen
-        bash_name: str
-            name of the external running script, the default is 'run'.
-        timeout: float, or None
-            if `timeout` is None, waits for the application to end.
-            If `timeout` is a float, wait for `timeout` seconds.
+        prob: Problem
+            the problem for external runs
 
         Returns
         ----------------
@@ -128,23 +120,7 @@ class MultiProcessEvaluation():
         y: ndarray [dim_output]
             function output
         '''
-        #* Initial check of the external running environment
-        if initialize:
-            
-            if not os.path.exists('./Runfiles'):
-                raise Exception('The folder [Runfiles] that contains the external evaluation script does not exist')
-            
-            if not os.path.exists('./Runfiles/run.bat') and not os.path.exists('./Runfiles/run.sh'):
-                raise Exception('The external evaluation script [run.bat/.sh] does not exist')
-            
-            if not os.path.exists('./Calculation'):
-                os.mkdir('./Calculation')
-
-        else:
-            #* External evaluation by prob
-            succeed, y = prob.external_run(name, x, information=self.information, timeout=self.timeout)
-
-            return succeed, y
+        return prob.external_run(name, x, information=self.information, timeout=self.timeout)
 
     def func_mp(self, x: np.ndarray, i: int, **kwargs):
         '''
@@ -175,12 +151,12 @@ class MultiProcessEvaluation():
         if self.func is None:
             
             if 'name' in kwargs.keys():
-                name = kwargs['name']
+                name : str = kwargs['name']
             else:
                 raise Exception('Must define name as the the working folder')
 
             if 'prob' in kwargs.keys():
-                prob = kwargs['prob']
+                prob : Problem = kwargs['prob']
             else:
                 raise Exception('Must provide Problem object `prob` for external running')
 
@@ -192,7 +168,7 @@ class MultiProcessEvaluation():
 
         return succeed, y, i
 
-    def evaluate(self, xs: np.ndarray, list_name=None, **kwargs):
+    def evaluate(self, xs: np.ndarray, list_name: List[str] = None, **kwargs):
         '''
         Evaluation of the multiple inputs `xs`.
         
@@ -245,10 +221,10 @@ class MultiProcessEvaluation():
 
         n_show = 100
         if 'n_show' in kwargs.keys():
-            n_show = kwargs['n_show']
+            n_show : int = kwargs['n_show']
 
         if 'prob' in kwargs.keys():
-            prob = kwargs['prob']
+            prob : Problem = kwargs['prob']
         elif self.func is None:
             raise Exception('Must provide Problem object `prob` for external running')
 

@@ -81,6 +81,13 @@ class Problem(object):
         return self.problem_settings.n_objective
     
     @property
+    def output_type(self) -> List[int]:
+        '''
+        Per-output role from settings (e.g. minimize / maximize).
+        '''
+        return self.problem_settings.output_type
+    
+    @property
     def mask_for_deactivated_inputs(self) -> np.ndarray:
         '''
         Mask for deactivated input variables, i.e.,

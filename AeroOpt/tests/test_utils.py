@@ -55,18 +55,17 @@ class TestLog:
 
 
 class TestCheckFolder:
-    def test_check_folder_calculation_not_exists(self):
-        # ./Calculation/ 可能不存在
-        exist = check_folder("_nonexistent_test_folder_12345")
-        assert exist is False
+    def test_check_folder_creates_nested(self):
+        import tempfile
 
-    def test_check_folder_calculation_exists(self):
-        # 若存在 Calculation 目录，用其下不存在的子目录名
-        base = os.path.join(".", "Calculation")
-        if not os.path.exists(base):
-            exist = check_folder("_nonexistent_")
-            assert exist is False
-        else:
-            # 随便一个不存在的名字
-            exist = check_folder("_nonexistent_sub_12345_")
-            assert exist is False
+        with tempfile.TemporaryDirectory() as d:
+            sub = os.path.join(d, "nested", "_check_folder_sub_")
+            out = check_folder(sub)
+            assert os.path.isdir(out)
+            assert os.path.normpath(out) == os.path.normpath(sub)
+
+    def test_check_folder_empty_raises(self):
+        with pytest.raises(ValueError, match="non-empty"):
+            check_folder("  ")
+        with pytest.raises(ValueError, match="non-empty"):
+            check_folder(None)
