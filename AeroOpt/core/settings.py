@@ -232,14 +232,18 @@ class SettingsProblem(object):
     
     def __init__(self, name: str, 
             data_settings: SettingsData,
-            fname_settings: str = 'settings.json'):
+            fname_settings: str = 'settings.json',
+            constraint_functions: List[Callable[[np.ndarray, np.ndarray], float]] = None):
+        
+        if constraint_functions is None:
+            constraint_functions = []
         
         self.name = name
         
         self.name_data_settings : str = 'default'
         self.output_type : List[int] = [-1]
         self.constraint_strings : List[str] = []
-        self.constraint_functions : List[Callable[[np.ndarray, np.ndarray], float]] = []
+        self.constraint_functions : List[Callable[[np.ndarray, np.ndarray], float]] = constraint_functions
         
         self.read_settings(fname_settings)
         

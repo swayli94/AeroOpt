@@ -252,7 +252,7 @@ class OptNSGAII(OptEvolutionaryFramework):
             if self.post_process is not None:
                 self.post_process.apply()
 
-        self.select_valid_elite_from_total()
+        self.select_elite_from_valid()
         self.log(f"Initial population prepared: valid={self.db_valid.size}", level=1)
 
     def generate_candidate_individuals(self) -> None:

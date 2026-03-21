@@ -483,33 +483,30 @@ class OptEvolutionaryFramework(OptBaseFramework):
         else:
             self.evolutionary_algorithm = evolutionary_algorithm
 
-    def select_valid_elite_from_total(self) -> None:
+    def select_elite_from_valid(self) -> None:
         '''
-        Select valid population and elite set from total database.
+        Select elite set from valid database.
         '''
-        valid = Database(self.problem, database_type="valid")
-        valid.merge_with_database(self.db_total, deepcopy=True)
-        valid.eliminate_invalid_individuals()
-
-        if valid.size <= 0:
-            self.db_valid = valid
+        if self.db_valid.size <= 0:
             self.db_elite = Database(self.problem, database_type="elite")
             return
 
         fronts = EvolutionaryAlgorithm.faster_non_dominated_ranking(
-            db=valid, is_valid_database=True)
-        EvolutionaryAlgorithm.assign_crowding_distance(db=valid, fronts=fronts)
-
-        n_take = min(self.population_size, valid.size)
-        selected_indices = EvolutionaryAlgorithm.select_population_indices(
-            db=valid, fronts=fronts, population_size=n_take)
+            db=self.db_valid, is_valid_database=True)
         
-        self.db_valid = valid.get_sub_database(
+        EvolutionaryAlgorithm.assign_crowding_distance(
+            db=self.db_valid, fronts=fronts)
+
+        n_take = min(self.population_size, self.db_valid.size)
+        selected_indices = EvolutionaryAlgorithm.select_population_indices(
+            db=self.db_valid, fronts=fronts, population_size=n_take)
+        
+        sub_valid = self.db_valid.get_sub_database(
             index_list=selected_indices, deepcopy=True)
-        self.db_valid.sort_database(sort_type=0)
+        sub_valid.sort_database(sort_type=0)
 
         if len(fronts) > 0 and len(fronts[0]) > 0:
-            self.db_elite = valid.get_sub_database(
+            self.db_elite = sub_valid.get_sub_database(
                 index_list=fronts[0], deepcopy=True)
             self.db_elite.sort_database(sort_type=0)
         else:

@@ -2,3 +2,12 @@
 *.pyc
 
 old/
+
+# Example files
+
+example/*/*.xlsx
+example/*/*.json
+example/*/*.log
+
+example/*/Calculation
+example/*/Runfiles

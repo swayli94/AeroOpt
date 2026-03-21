@@ -4,11 +4,12 @@ Base framework for optimization.
 import os
 import numpy as np
 import time
+import copy
 
-from typing import Callable
+from typing import List, Callable, Tuple
 
 from AeroOpt.core import (
-    Problem, Database,
+    Problem, Individual, Database,
     SettingsOptimization,
     MultiProcessEvaluation,
     init_log, log
@@ -32,10 +33,30 @@ class OptBaseFramework(object):
     mp_evaluation: MultiProcessEvaluation
         Multi-process evaluation object defined in the entrance of the entire program.
         If None, use serial evaluation.
+        
+    Attributes:
+    -----------
+    iteration: int
+        The current iteration number.
     pre_process: PreProcess
         Pre-processing of the `db_candidate` database to be evaluated.
     post_process: PostProcess
         Post-processing of the `db_candidate` database after evaluation.
+    db_total: Database
+        Total database, including all individuals.
+    db_valid: Database
+        Valid database, including only valid individuals.
+    db_elite: Database
+        Elite database, including only elite individuals.
+    db_candidate: Database
+        Population database, including only candidate individuals.
+    analyze_total: AnalyzeDatabase
+        Analysis of the total database to:
+        (1) avoid having duplicated individuals in `db_candidate`;
+        (2) find new candidates using potential-based search.
+    analyze_valid: AnalyzeDatabase
+        Analysis of the valid database to:
+        (1) adjust candidate input variables to be feasible.
         
     Example:
     ---------
@@ -45,19 +66,19 @@ class OptBaseFramework(object):
     def __init__(self, problem: Problem,
             optimization_settings: SettingsOptimization,
             user_func: Callable = None,
-            mp_evaluation: MultiProcessEvaluation = None,
-            pre_process: 'PreProcess' = None,
-            post_process: 'PostProcess' = None):
+            mp_evaluation: MultiProcessEvaluation = None):
         
         self.problem = problem
         self.optimization_settings = optimization_settings
 
         self.user_func : Callable = user_func
         self.mp_evaluation : MultiProcessEvaluation = mp_evaluation
-        self.pre_process : 'PreProcess' = pre_process
-        self.post_process : 'PostProcess' = post_process
         
         self.iteration : int = 0
+        
+        # Processing objects manually defined in the main program.
+        self.pre_process : 'PreProcess' = None
+        self.post_process : 'PostProcess' = None
         
         # Database
         self.db_total = Database(self.problem, database_type='total')
@@ -67,6 +88,10 @@ class OptBaseFramework(object):
         
         # Analysis of the database
         self.analyze_total = AnalyzeDatabase(self.db_total,
+                               variables_for_calculating_potential=None,
+                               critical_potential=self.optimization_settings.critical_potential_x)
+        
+        self.analyze_valid = AnalyzeDatabase(self.db_valid,
                                variables_for_calculating_potential=None,
                                critical_potential=self.optimization_settings.critical_potential_x)
         
@@ -94,7 +119,7 @@ class OptBaseFramework(object):
         Name of the optimization, i.e.,
         `{OptimizationName}-{ProblemName}`
         '''
-        return self.optimization_settings.name + self.problem.name
+        return self.optimization_settings.name + '-' + self.problem.name
     
     @property
     def dir_save(self) -> str:
@@ -151,7 +176,7 @@ class OptBaseFramework(object):
         
         self.initialize_population()
         
-        self.select_valid_elite_from_total()
+        self.select_elite_from_valid()
         
         while not self.termination():
             
@@ -168,10 +193,12 @@ class OptBaseFramework(object):
                 
             self.evaluate_db_candidate()
             
+            self.update_total_and_valid_with_candidate()
+            
             if self.post_process is not None:
                 self.post_process.apply()
                 
-            self.select_valid_elite_from_total()
+            self.select_elite_from_valid()
             
             t1 = time.perf_counter()
             self.log(f'Iteration {self.iteration} finished in {(t1-t0)/60.0:.2f} min.', level=1)
@@ -235,13 +262,6 @@ class OptBaseFramework(object):
         '''
         raise NotImplementedError('Not implemented.')
 
-    #! Needs to be implemented
-    def select_valid_elite_from_total(self) -> None:
-        '''
-        Select valid and elite individuals from the total database.
-        '''
-        raise NotImplementedError('Not implemented.')
-
     def evaluate_db_candidate(self) -> None:
         '''
         Evaluate the `db_candidate` database,
@@ -251,19 +271,54 @@ class OptBaseFramework(object):
         
         self.db_candidate.evaluate_individuals(mp_evaluation=self.mp_evaluation,
                                             user_func=self.user_func)
+
+        t1 = time.perf_counter()
+        self.log(f'Evaluation of {self.db_candidate.size} candidates finished in {(t1-t0)/60.0:.2f} min.', level=1)
+
+    def update_total_and_valid_with_candidate(self) -> None:
+        '''
+        Update the total database and valid database with the candidate database.
+        - Merge the candidate database into the total database.
+        - Copy the total database to the valid database.
+        - Eliminate invalid individuals from the valid database.
+        '''
+        t0 = time.perf_counter()
+        n_previous_total = self.db_total.size
+        n_previous_valid = self.db_valid.size
         
         self.db_total.merge_with_database(self.db_candidate, deepcopy=True)
 
+        self.db_valid = copy.deepcopy(self.db_total)
+        self.db_valid.database_type = 'valid'
+        self.db_valid.eliminate_invalid_individuals()
+        
+        n_added_total = self.db_total.size - n_previous_total
+        n_added_valid = self.db_valid.size - n_previous_valid
+
+        # Keep analysis helpers synchronized with latest database objects.
+        if self.analyze_total is not None:
+            self.analyze_total.database = self.db_total
+        if self.analyze_valid is not None:
+            self.analyze_valid.database = self.db_valid
+        
         t1 = time.perf_counter()
-        self.log(f'Evaluation finished in {(t1-t0)/60.0:.2f} min.', level=1)
-    
+        self.log(f'Add {n_added_total} individuals to total, updated to {self.db_total.size}.', level=1)
+        self.log(f'Add {n_added_valid} individuals to valid, updated to {self.db_valid.size}.', level=1)
+
+    #! Needs to be implemented
+    def select_elite_from_valid(self) -> None:
+        '''
+        Select valid and elite individuals from the total database.
+        '''
+        raise NotImplementedError('Not implemented.')
+
     #* Support functions
 
-    def log(self, text: str, level: int = 1) -> None:
+    def log(self, text: str, level: int = 1, prefix: str = '>>> ') -> None:
         '''
         Log a message to the log file.
         '''
-        log(text, prefix='>>> ', fname=self.fname_log,
+        log(text, prefix=prefix, fname=self.fname_log,
                 print_on_screen=(level<=self.level))
 
     def _assign_ID_to_candidate_individuals(self) -> None:
@@ -291,19 +346,23 @@ class PreProcess(object):
 
         self.opt = opt
         
+        self.pre_process_folder : str = 'PreProcess'
+        
     def apply(self) -> None:
         '''
         Apply the pre-processing to the `db_candidate` database.
         '''
+        self.opt.log(f'Pre-processing of {self.opt.db_candidate.size} candidates started.', level=1)
         raise NotImplementedError('Pre-processing is not implemented.')
     
-    def _restrict_x_values(self, xs: np.ndarray,
+    def _restrict_x_values_by_valid_database(self, xs: np.ndarray,
                         min_scaled_distance: float = 0.0,
                         max_scaled_distance: float = 1.0,
+                        ID_list: List[int] = None,
                         ) -> np.ndarray:
         '''
         Restrict the input variables of candidates,
-        so that their scaled distances to the existed individuals in `db_total`
+        so that their scaled distances to the valid individuals in `db_valid`
         are within [min_scaled_distance, max_scaled_distance].
         
         Parameters:
@@ -311,9 +370,12 @@ class PreProcess(object):
         xs: np.ndarray [n_candidate, n_input]
             Input variables of the candidates.
         min_scaled_distance: float
-            Minimum scaled distance to the existed individuals in `db_total`.
+            Minimum scaled distance to the valid individuals in `db_valid`.
         max_scaled_distance: float
-            Maximum scaled distance to the existed individuals in `db_total`.
+            Maximum scaled distance to the valid individuals in `db_valid`.
+        ID_list: List[int]
+            List of local IDs of the `xs` to be restricted.
+            If None, use index of `xs` as the list of IDs.
         
         Returns:
         --------
@@ -322,11 +384,17 @@ class PreProcess(object):
         '''
         xs_new = np.zeros_like(xs)
         n_candidate = xs.shape[0]
+
+        if n_candidate <= 0 or self.opt.db_valid.size <= 0:
+            return xs_new
         
+        if ID_list is None:
+            ID_list = list(range(n_candidate))
+
         scaled_xs = self.opt.problem.scale_x(xs)
         
-        distance_matrix = self.opt.analyze_total.calculate_distance_to_database(
-                                scaled_xs, update_attributes=True) # [n_candidate, n_total]
+        distance_matrix = self.opt.analyze_valid.calculate_distance_to_database(
+                                scaled_xs, update_attributes=True) # [n_candidate, n_valid]
 
         min_distance = np.min(distance_matrix, axis=1) # [n_candidate]
         
@@ -336,36 +404,156 @@ class PreProcess(object):
 
         for i in range(n_candidate):
             
-            if min_distance[i] < min_scaled_distance:
+            min_d = max(min_distance[i], 1e-6)
+            
+            if min_d < min_scaled_distance:
                 
-                j_total = np.argmin(distance_matrix[i])
-                x_ref = self.opt.analyze_total.database.individuals[j_total].x
-                dx = (xs[i] - x_ref)/(min_distance[i]+1e-6)
-                xs_new[i] = x_ref + min_scaled_distance * dx
+                j_valid = np.argmin(distance_matrix[i])
+                indi_ref = self.opt.analyze_valid.database.individuals[j_valid]
+                ratio = min_scaled_distance / min_d
+                xs_new[i] = indi_ref.x + ratio * (xs[i] - indi_ref.x)
                 
-            elif min_distance[i] > max_scaled_distance:
+                self.opt.log(f'Candidate #{ID_list[i]:2d}: too close to the' +
+                            f' nearest valid individual X (ID={indi_ref.ID:4d}),' + 
+                            f' adjust distance by ratio {ratio:.2f} away from X.',
+                            level=2, prefix='  - ')
                 
-                j_total = np.argmin(distance_matrix[i])
-                x_ref = self.opt.analyze_total.database.individuals[j_total].x
-                dx = (xs[i] - x_ref)/(min_distance[i]+1e-6)
-                xs_new[i] = x_ref + max_scaled_distance * dx
+            elif min_d > max_scaled_distance:
+                
+                j_valid = np.argmin(distance_matrix[i])
+                indi_ref = self.opt.analyze_valid.database.individuals[j_valid]
+                ratio = max_scaled_distance / min_d
+                xs_new[i] = indi_ref.x + ratio * (xs[i] - indi_ref.x)
+                
+                self.opt.log(f'Candidate #{ID_list[i]:2d}: too far from the' +
+                            f' nearest valid individual X (ID={indi_ref.ID:4d}),' + 
+                            f' adjust distance by ratio {ratio:.2f} towards X.',
+                            level=2, prefix='  - ')
                 
             else:
                 
                 xs_new[i] = xs[i]
         
-        xs_new = self.opt.problem.scale_x(xs_new, reverse=True)
         self.opt.problem.apply_bounds_x(xs_new)
-                
+        
         return xs_new
 
+    def _check_pre_processing_feasibility(self, xs: np.ndarray,
+                        pre_processing_problem: Problem,
+                        user_pre_processing_func: Callable = None) -> Tuple[List[bool], List[int]]:
+        '''
+        Check the feasibility of the input variables after pre-processing:
+        - check individual's `valid_evaluation` flag
+        - check constraints
+        
+        Parameters:
+        -----------
+        xs: np.ndarray [n_candidate, n_input]
+            Input variables of the candidates.
+        pre_processing_problem: Problem
+            Problem for pre-processing.
+        user_pre_processing_func: Callable
+            User-defined function to evaluate the individuals.
+            If None, use external evaluation script.
+        
+        Returns:
+        --------
+        feasibility_flags: List[bool] [n_candidate]
+            Feasibility flags of the candidates.
+        ID_list: List[int]
+            List of IDs of the candidates.
+        '''
+        self.opt.log(f'Checking pre-processing feasibility of {xs.shape[0]} candidates...', level=2, prefix='  > ')
+        
+        pre_processing_problem.calculation_folder = os.path.join(
+            self.opt.dir_save, self.pre_process_folder)
+        
+        db = Database(pre_processing_problem, database_type='total')
+        for i in range(xs.shape[0]):
+            indi = Individual(pre_processing_problem, x=xs[i], ID=i+1)
+            db.add_individual(indi)
+            
+        db.evaluate_individuals(mp_evaluation=self.opt.mp_evaluation,
+                                user_func=user_pre_processing_func)
+        
+        feasibility_flags = []
+        ID_list = []
+        for indi in db.individuals:
+            
+            is_feasible = indi.valid_evaluation and indi.sum_violation <= 0.0
+            feasibility_flags.append(is_feasible)
+            ID_list.append(indi.ID)
+            
+            if not is_feasible:
+                self.opt.log(f'Candidate #{indi.ID:2d} is infeasible.', level=2, prefix='  - ')
+            
+        return feasibility_flags, ID_list
+    
+    def _adjust_x_values_by_valid_database(self, xs: np.ndarray, feasibility_flags: List[bool],
+                    min_scaled_distance: float = 0.01,
+                    max_scaled_distance: float = 0.10,
+                    ID_list: List[int] = None) -> np.ndarray:
+        '''
+        Adjust the input variables of candidates towards the valid individuals in `db_valid`.
+        
+        Parameters:
+        -----------
+        xs: np.ndarray [n_candidate, n_input]
+            Input variables of the candidates.
+        feasibility_flags: List[bool] [n_candidate]
+            Feasibility flags of the candidates.
+        min_scaled_distance: float
+            Minimum scaled distance to the valid individuals in `db_valid`.
+        max_scaled_distance: float
+            Maximum scaled distance to the valid individuals in `db_valid`.
+        ID_list: List[int]
+            List of local IDs of the candidates.
+            If None, use index of `xs` as the list of IDs.
+            
+        Returns:
+        --------
+        xs_new: np.ndarray [n_candidate, n_input]
+            Input variables of the candidates after adjustment.
+        '''
+        self.opt.log(f'Adjusting candidates based on the valid database...', level=2, prefix='  > ')
+        
+        xs_new = xs.copy()
+
+        # Keep compatibility with list/ndarray inputs, but fail fast when
+        # upstream feasibility checks return inconsistent lengths.
+        feasibility_flags = np.asarray(feasibility_flags, dtype=bool).reshape(-1)
+        n_candidate = xs_new.shape[0]
+        if feasibility_flags.size != n_candidate:
+            raise ValueError(
+                f"Length mismatch: feasibility_flags has {feasibility_flags.size} "
+                f"entries, but xs has {n_candidate} candidates."
+            )
+        
+        index_infeasible = np.where(~feasibility_flags)[0]
+        
+        if ID_list is not None:
+            ID_list_infeasible = [ID_list[i] for i in index_infeasible]
+        else:
+            ID_list_infeasible = None
+        
+        xs_adjusting = xs_new[index_infeasible]
+        
+        xs_adjusting = self._restrict_x_values_by_valid_database(xs_adjusting,
+                                min_scaled_distance=min_scaled_distance,
+                                max_scaled_distance=max_scaled_distance,
+                                ID_list=ID_list_infeasible)
+        
+        xs_new[index_infeasible] = xs_adjusting
+        
+        return xs_new
+        
 
 class PostProcess(object):
     '''
-    Post-processing of `db_candidate` database in each iteration.
+    Post-processing of `db_total`, `db_valid` databases in each iteration.
     
     The databases are accessed through the `OptBaseFramework` object, `opt`.
-    The `db_candidate` is modified in place.
+    The `db_total` and `db_valid` databases are modified in place.
     
     Parameters:
     -----------
@@ -378,7 +566,7 @@ class PostProcess(object):
 
     def apply(self) -> None:
         '''
-        Apply the post-processing to the `db_candidate` database.
+        Apply the post-processing to the `db_total` and `db_valid` databases.
         '''
         raise NotImplementedError('Post-processing is not implemented.')
 

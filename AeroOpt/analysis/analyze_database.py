@@ -249,6 +249,10 @@ class AnalyzeDatabase(object):
         Update the statistics of all individuals, including:
         average, standard deviation, minimum, maximum of (scaled) `x`,  `y` and `v`.
         '''
+        if self.size <= 0:
+            self.statistics = None
+            return self.statistics
+
         self.statistics = {
             'average_x': np.mean(self._xs, axis=0),
             'average_y': np.mean(self._ys, axis=0),
@@ -280,8 +284,13 @@ class AnalyzeDatabase(object):
         '''
         Update the distance matrix of the database.
         '''
-        self._distance_matrix = cdist(
-            self._scaled_variables, self._scaled_variables, metric=self.metric)
+        if self.size <= 0:
+            self._distance_matrix = None
+        else:
+            self._distance_matrix = cdist(
+                self._scaled_variables, self._scaled_variables, metric=self.metric)
+        
+        return self._distance_matrix
 
     def update_attributes(self) -> None:
         '''
@@ -378,7 +387,7 @@ class AnalyzeDatabase(object):
                 update_attributes: bool = True,
                 ) -> np.ndarray:
         '''
-        Calculate the distance to the database.
+        Calculate the scaled distance to the database.
         
         Parameters:
         -----------
@@ -390,7 +399,7 @@ class AnalyzeDatabase(object):
         Returns:
         --------
         distance_matrix: np.ndarray [n, nn]
-            Distance to all points in the database.
+            Scaled distance to all points in the database.
         '''
         #nn = self.size
         if update_attributes:

@@ -5,6 +5,9 @@ Database definition.
 import numpy as np
 import json
 import copy
+from openpyxl import Workbook
+from openpyxl.styles import Alignment
+from openpyxl.utils import get_column_letter
 
 from typing import List, Tuple, Callable
 from AeroOpt.core.individual import Individual
@@ -35,7 +38,7 @@ class Database(object):
         'intersection': 'intersection of two databases',
         'sub-database': 'sub-database',
     }
-    
+
     def __init__(self, problem: Problem, database_type='default'):
 
         self.problem = problem
@@ -48,7 +51,7 @@ class Database(object):
         
         self._id_list : List[int] = [] # List of IDs in the order of individuals
         self._sorted : bool = False
-    
+
     #* Attributes
     
     @property
@@ -233,7 +236,7 @@ class Database(object):
         closest_index: List[int] or int
             List of indices of the closest individuals.
         '''
-        is_multiple = (x.ndim == 1)
+        is_multiple = (x.ndim > 1)
         if is_multiple:
             n = x.shape[0]
             is_duplicated = [False] * n
@@ -250,7 +253,7 @@ class Database(object):
             x = self.problem.scale_x(x)
         
         scaled_distance_matrix = self.problem.calculate_scaled_distance(
-            x, self.get_xs(is_scaled_x=True),
+            x, self.get_xs(scale=True),
             is_scaled_x=True)
         
         min_dis = np.min(scaled_distance_matrix, axis=1) # [n]
@@ -308,9 +311,7 @@ class Database(object):
             indi = copy.deepcopy(indi)
         
         # Check duplication
-        if self.size <= 0:
-            self.individuals.append(indi)
-        else:
+        if self.size > 0:
             is_duplicated, closest_index = self.check_duplication(indi.x)
             if is_duplicated and check_duplication:
                 print(f'>>> Failed to add individual: ID={indi.ID}')
@@ -609,14 +610,131 @@ class Database(object):
         
         self._id_list = [indi.ID for indi in self.individuals]
         self._sorted = False
+    
+    @staticmethod
+    def _format_sheet_left_align_and_auto_width(ws) -> None:
+        '''
+        Left-align all cells and auto-fit column widths for a worksheet.
+        '''
+        max_col_width = {}
+        for row in ws.iter_rows():
+            for cell in row:
+                cell.alignment = Alignment(horizontal='left', vertical='center')
+                cell_value = '' if cell.value is None else str(cell.value)
+                col_idx = cell.column
+                width = len(cell_value)
+                if col_idx not in max_col_width or width > max_col_width[col_idx]:
+                    max_col_width[col_idx] = width
+        
+        for col_idx, width in max_col_width.items():
+            col_letter = get_column_letter(col_idx)
+            ws.column_dimensions[col_letter].width = min(max(width + 2, 10), 80)
+
+    def json_to_excel(self, json_fname: str, excel_fname: str, sheet_name: str = 'database') -> None:
+        '''
+        Convert database JSON file to an Excel file.
+        
+        Excel format:
+        - First row is header.
+        - First column is `ID`.
+        - Second column is `generation`.
+        - Input/output variable components are expanded into independent columns,
+          ordered by problem settings.
+        '''
+        with open(json_fname, 'r', encoding='utf-8') as f:
+            database_data = json.load(f)
+        
+        all_individuals = database_data.get('individuals', [])
+        
+        input_names = list(self.problem.data_settings.name_input)
+        output_names = list(self.problem.data_settings.name_output)
+        
+        # Keep x/y in required order; remaining fields can be in arbitrary order.
+        exclude_keys = {'ID', 'generation', 'x', 'y'}
+        other_keys = []
+        for indi_data in all_individuals:
+            for key in indi_data.keys():
+                if key not in exclude_keys and key not in other_keys:
+                    other_keys.append(key)
+        
+        header = ['ID', 'generation'] + input_names + output_names + other_keys
+        
+        wb = Workbook()
+        ws = wb.active
+        ws.title = sheet_name
+        ws.append(header)
+        
+        n_input = len(input_names)
+        n_output = len(output_names)
+        
+        for indi_data in all_individuals:
+            x = indi_data.get('x', [None] * n_input)
+            y = indi_data.get('y', [None] * n_output)
+            
+            if x is None:
+                x = [None] * n_input
+            if y is None:
+                y = [None] * n_output
+            
+            if len(x) < n_input:
+                x = list(x) + [None] * (n_input - len(x))
+            if len(y) < n_output:
+                y = list(y) + [None] * (n_output - len(y))
+            
+            row = [
+                indi_data.get('ID'),
+                indi_data.get('generation'),
+            ] + list(x[:n_input]) + list(y[:n_output])
+            
+            for key in other_keys:
+                value = indi_data.get(key)
+                if isinstance(value, list):
+                    value = json.dumps(value, ensure_ascii=False)
+                row.append(value)
+            
+            ws.append(row)
+        
+        # Additional sheet: data_settings
+        ws_data = wb.create_sheet(title='data_settings')
+        ds = self.problem.data_settings
+        ws_data.append(['field', 'value'])
+        ws_data.append(['name', ds.name])
+        ws_data.append(['name_input', json.dumps(list(ds.name_input), ensure_ascii=False)])
+        ws_data.append(['input_low', json.dumps(ds.input_low.tolist(), ensure_ascii=False)])
+        ws_data.append(['input_upp', json.dumps(ds.input_upp.tolist(), ensure_ascii=False)])
+        ws_data.append(['input_precision', json.dumps(ds.input_precision.tolist(), ensure_ascii=False)])
+        ws_data.append(['name_output', json.dumps(list(ds.name_output), ensure_ascii=False)])
+        ws_data.append(['output_low', json.dumps(ds.output_low.tolist(), ensure_ascii=False)])
+        ws_data.append(['output_upp', json.dumps(ds.output_upp.tolist(), ensure_ascii=False)])
+        ws_data.append(['output_precision', json.dumps(ds.output_precision.tolist(), ensure_ascii=False)])
+        ws_data.append(['critical_scaled_distance', ds.critical_scaled_distance])
+
+        # Additional sheet: problem_settings
+        ws_problem = wb.create_sheet(title='problem_settings')
+        ps = self.problem.problem_settings
+        ws_problem.append(['field', 'value'])
+        ws_problem.append(['name', ps.name])
+        ws_problem.append(['name_data_settings', ps.name_data_settings])
+        ws_problem.append(['output_type', json.dumps(list(ps.output_type), ensure_ascii=False)])
+        ws_problem.append(['constraint_strings', json.dumps(list(ps.constraint_strings), ensure_ascii=False)])
+        ws_problem.append(['n_constraint_functions', len(ps.constraint_functions)])
+        ws_problem.append(['n_constraint', ps.n_constraint])
+        ws_problem.append(['n_objective', ps.n_objective])
+        
+        self._format_sheet_left_align_and_auto_width(ws_data)
+        self._format_sheet_left_align_and_auto_width(ws_problem)
+        
+        wb.save(excel_fname)
 
     #* Evaluation
     
     def evaluate_individuals(self,
                     mp_evaluation: MultiProcessEvaluation = None,
-                    user_func: Callable = None) -> None:
+                    user_func: Callable = None,
+                    prefix_folder_name: str = None) -> None:
         '''
-        Evaluate the individuals in the database.
+        Evaluate the individuals (`y`) in the database,
+        constraints are also evaluated.
         
         Parameters:
         -----------
@@ -626,6 +744,9 @@ class Database(object):
         user_func: Callable
             User-defined function to evaluate the individuals.
             If None, use external evaluation script.
+        prefix_folder_name: str
+            Prefix of the folder name for external evaluation.
+            If None, use individual's ID as the folder name.
         
         Example:
         ---------
@@ -638,6 +759,9 @@ class Database(object):
         '''
         if self.size <= 0:
             return None
+        
+        if prefix_folder_name is None:
+            prefix_folder_name = ''
 
         # Define folder names for external evaluation.
         xs = np.zeros((self.size, self.problem.n_input))
@@ -646,7 +770,7 @@ class Database(object):
             xs[i, :] = indi.x
             if indi.ID is None:
                 raise ValueError('Individual ID is None')
-            list_name.append(str(indi.ID))
+            list_name.append(prefix_folder_name + str(indi.ID))
 
         # Evaluate individuals.
         if mp_evaluation is not None:

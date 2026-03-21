@@ -270,20 +270,7 @@ class MultiProcessEvaluation():
                             t1 = time.perf_counter()
                             print('  > parallel calculation done: n = %d, t = %.2f min'%(num, (t1-t0)/60.0))
                             
-                self.executor = executor
-
         return list_succeed, ys
-
-    def finalize(self):
-        '''
-        Signal the executor that it should free any resources.
-
-        Calls to Executor.submit() and Executor.map() made 
-        after shutdown will raise RuntimeError.
-
-        >>> executor.shutdown(wait=True)
-        '''
-        self.executor.shutdown(wait=True)
 
 
 def template_usr_func(x, **kwargs):

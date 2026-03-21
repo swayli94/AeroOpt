@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from AeroOpt.core import Database, Individual, Problem, SettingsData, SettingsOptimization, SettingsProblem
-from AeroOpt.optimization.base import OptBaseFramework
+from AeroOpt.optimization.base import OptBaseFramework, PreProcess
 
 
 class _DummyOpt(OptBaseFramework):
@@ -13,7 +13,7 @@ class _DummyOpt(OptBaseFramework):
     def generate_candidate_individuals(self) -> None:
         return None
 
-    def select_valid_elite_from_total(self) -> None:
+    def select_elite_from_valid(self) -> None:
         self.db_valid = Database(self.problem, database_type="valid")
         self.db_elite = Database(self.problem, database_type="elite")
 
@@ -109,3 +109,113 @@ def test_evaluate_db_candidate_and_merge_total(problem, optimization_settings, m
     assert len(ys) >= 2
     assert any(np.allclose(y, np.array([0.15])) for y in ys)
     assert any(np.allclose(y, np.array([0.35])) for y in ys)
+
+
+class _DummyProblemForPreProcess:
+    def __init__(self):
+        self.name = "DummyPreProcessProblem"
+        self.critical_scaled_distance = 0.2
+        self.calculation_folder = ""
+        self._lb = 0.0
+        self._ub = 1.0
+
+    def scale_x(self, x, reverse=False):
+        # Use identity transform so expected values are easy to verify.
+        return np.asarray(x, dtype=float).copy()
+
+    def apply_bounds_x(self, x):
+        np.clip(x, self._lb, self._ub, out=x)
+
+    def check_bounds_x(self, x):
+        x = np.asarray(x, dtype=float)
+        return np.all(x >= self._lb) and np.all(x <= self._ub)
+
+
+class _DummyAnalyzeValid:
+    def __init__(self, distance_matrix, valid_xs):
+        self._distance_matrix = np.asarray(distance_matrix, dtype=float)
+        self.database = type("Db", (), {})()
+        self.database.individuals = [type("I", (), {"x": np.asarray([vx], dtype=float)})() for vx in valid_xs]
+
+    def calculate_distance_to_database(self, scaled_xs, update_attributes=True):
+        return self._distance_matrix
+
+
+def test_preprocess_restrict_x_values_by_valid_database():
+    problem = _DummyProblemForPreProcess()
+    opt = type("Opt", (), {})()
+    opt.problem = problem
+    opt.dir_save = "tmp_dir"
+    opt.analyze_valid = _DummyAnalyzeValid(
+        distance_matrix=[[0.10, 0.60], [0.35, 0.70], [0.50, 0.10]],
+        valid_xs=[0.20, 0.80],
+    )
+    pp = PreProcess(opt)
+
+    xs = np.array([[0.00], [0.50], [1.20]], dtype=float)
+    xs_new = pp._restrict_x_values_by_valid_database(
+        xs, min_scaled_distance=0.05, max_scaled_distance=0.30
+    )
+
+    # 1) too close -> move to at least critical distance (0.2) from x_ref=0.2
+    assert np.allclose(xs_new[0], np.array([0.0]))
+    # 2) too far -> pull towards x_ref=0.2 to max distance 0.3 => 0.2 + 0.3*(0.3/0.35)
+    assert np.allclose(xs_new[1], np.array([0.4571428571]))
+    # 3) already in range [0.2, 0.3] around nearest valid -> unchanged by distance rule, then bounded
+    assert np.allclose(xs_new[2], np.array([1.0]))
+
+
+def test_preprocess_check_feasibility_sets_calculation_folder(monkeypatch):
+    problem = _DummyProblemForPreProcess()
+    opt = type("Opt", (), {})()
+    opt.problem = problem
+    opt.dir_save = "run_dir"
+    opt.mp_evaluation = None
+    pp = PreProcess(opt)
+
+    def _fake_evaluate(self, mp_evaluation=None, user_func=None):
+        for indi in self.individuals:
+            x0 = float(indi.x[0])
+            indi.valid_evaluation = x0 >= 0.2
+            indi.sum_violation = 0.0 if x0 <= 0.8 else 1.0
+
+    def _fake_add_individual(self, indi, **kwargs):
+        self.individuals.append(indi)
+        self.update_id_list()
+        self._sorted = False
+        return True
+
+    monkeypatch.setattr(Database, "add_individual", _fake_add_individual)
+    monkeypatch.setattr(Database, "evaluate_individuals", _fake_evaluate)
+    xs = np.array([[0.1], [0.3], [0.9]], dtype=float)
+    flags = pp._check_pre_processing_feasibility(xs, pre_processing_problem=problem)
+
+    assert problem.calculation_folder == os.path.join("run_dir", "PreProcess")
+    assert flags == [False, True, False]
+
+
+def test_preprocess_adjust_x_values_by_valid_database(monkeypatch):
+    problem = _DummyProblemForPreProcess()
+    opt = type("Opt", (), {})()
+    opt.problem = problem
+    opt.dir_save = "tmp_dir"
+    opt.analyze_valid = _DummyAnalyzeValid(
+        distance_matrix=[[0.12, 0.40], [0.20, 0.60]],
+        valid_xs=[0.20, 0.80],
+    )
+    pp = PreProcess(opt)
+
+    xs = np.array([[0.05], [0.60], [0.95]], dtype=float)
+    feasibility_flags = np.array([False, True, False], dtype=bool)
+
+    xs_adjusted = np.array([[0.00], [1.10]], dtype=float)
+
+    def _fake_restrict(_xs, min_scaled_distance=0.01, max_scaled_distance=0.10):
+        # Ensure only infeasible rows are sent for adjustment.
+        assert np.allclose(_xs, np.array([[0.05], [0.95]]))
+        return xs_adjusted
+
+    monkeypatch.setattr(pp, "_restrict_x_values_by_valid_database", _fake_restrict)
+    out = pp._adjust_x_values_by_valid_database(xs, feasibility_flags)
+
+    assert np.allclose(out, np.array([[0.00], [0.60], [1.10]]))

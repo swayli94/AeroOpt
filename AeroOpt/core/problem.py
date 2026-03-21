@@ -24,6 +24,15 @@ class Problem(object):
         Settings of the data.
     problem_settings: SettingsProblem
         Settings of the problem.
+        
+    Attributes:
+    -----------
+    input_fname: str
+        Name of the input file.
+    output_fname: str
+        Name of the output file.
+    calculation_folder: str
+        Name of the calculation folder.
     '''
     def __init__(self, data_settings: SettingsData, problem_settings: SettingsProblem):
 
@@ -32,6 +41,8 @@ class Problem(object):
 
         self.input_fname : str = 'input.txt'
         self.output_fname : str = 'output.txt'
+        
+        self.calculation_folder : str = 'Calculation'
 
     def __eq__(self, other):
         '''
@@ -151,12 +162,15 @@ class Problem(object):
             Each line contains the name and value of one variable, e.g. 'y1   1.0'.
         
         '''
+        
+        folder = os.path.join(self.calculation_folder, folder_name)
+        out_name = os.path.join(folder, self.output_fname)
+        in_name = os.path.join(folder, self.input_fname)
+        
+        os.makedirs(folder, exist_ok=True)
 
         if platform.system() in 'Windows':
-            folder = '.\\Calculation\\'+folder_name
-            out_name = folder+'\\'+self.output_fname
-            in_name  = folder+'\\'+self.input_fname
-
+            
             if not os.path.exists(in_name):
                 os.system('xcopy /s /y  .\\Runfiles  '+folder+'\\  > nul')
 
@@ -171,9 +185,6 @@ class Problem(object):
                     os.system('del   '+folder+'\\%s.bat'%(bash_name))
 
         else:
-            folder = './Calculation/'+folder_name
-            out_name = folder+'/'+self.output_fname
-            in_name  = folder+'/'+self.input_fname
 
             if not os.path.exists(in_name):
                 #* Note: check input.txt because if the folder exists,
@@ -346,11 +357,13 @@ class Problem(object):
             
             if item in self.data_settings.name_input:
                 i = self.data_settings.name_input.index(item)
-                new_formula = new_formula + str(x[i])
+                # Wrap numeric substitution with parentheses so negative values
+                # keep expected precedence, e.g. (-1.0)**2 instead of -1.0**2.
+                new_formula = new_formula + f'({x[i]})'
                 
             elif item in self.data_settings.name_output:
                 i = self.data_settings.name_output.index(item)
-                new_formula = new_formula + str(y[i])
+                new_formula = new_formula + f'({y[i]})'
                 
             else:
                 new_formula = new_formula + item
