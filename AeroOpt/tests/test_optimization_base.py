@@ -31,6 +31,9 @@ def _make_opt(problem, optimization_settings):
     opt.db_valid = Database(problem, database_type="valid")
     opt.db_elite = Database(problem, database_type="elite")
     opt.db_candidate = Database(problem, database_type="population")
+    opt.analyze_total = None
+    opt.analyze_valid = None
+    opt.log = lambda *args, **kwargs: None
     return opt
 
 
@@ -70,7 +73,7 @@ def test_base_properties(problem, optimization_settings):
     opt = _make_opt(problem, optimization_settings)
     assert opt.population_size == 4
     assert opt.max_iterations == 2
-    assert opt.name == f"{optimization_settings.name}{problem.name}"
+    assert opt.name == f"{optimization_settings.name}-{problem.name}"
     assert opt.dir_save.endswith("Calculation")
     assert opt.dir_summary.endswith("Summary")
     assert opt.dir_runfiles.endswith("Runfiles")
@@ -103,6 +106,7 @@ def test_evaluate_db_candidate_and_merge_total(problem, optimization_settings, m
 
     monkeypatch.setattr(Database, "add_individual", _patched_add_individual)
     opt.evaluate_db_candidate()
+    opt.update_total_and_valid_with_candidate()
 
     assert opt.db_total.size >= 2
     ys = [indi.y for indi in opt.db_total.individuals if indi.y is not None]
@@ -135,20 +139,34 @@ class _DummyAnalyzeValid:
     def __init__(self, distance_matrix, valid_xs):
         self._distance_matrix = np.asarray(distance_matrix, dtype=float)
         self.database = type("Db", (), {})()
-        self.database.individuals = [type("I", (), {"x": np.asarray([vx], dtype=float)})() for vx in valid_xs]
+        self.database.individuals = [
+            type("I", (), {"x": np.asarray([vx], dtype=float), "ID": 100 + k})()
+            for k, vx in enumerate(valid_xs)
+        ]
 
     def calculate_distance_to_database(self, scaled_xs, update_attributes=True):
         return self._distance_matrix
 
 
-def test_preprocess_restrict_x_values_by_valid_database():
-    problem = _DummyProblemForPreProcess()
+def _preprocess_dummy_opt(problem, analyze_valid=None, dir_save="tmp_dir"):
     opt = type("Opt", (), {})()
     opt.problem = problem
-    opt.dir_save = "tmp_dir"
-    opt.analyze_valid = _DummyAnalyzeValid(
-        distance_matrix=[[0.10, 0.60], [0.35, 0.70], [0.50, 0.10]],
-        valid_xs=[0.20, 0.80],
+    opt.dir_save = dir_save
+    opt.db_valid = type("DbV", (), {"size": 2})()
+    opt.log = lambda *args, **kwargs: None
+    if analyze_valid is not None:
+        opt.analyze_valid = analyze_valid
+    return opt
+
+
+def test_preprocess_restrict_x_values_by_valid_database():
+    problem = _DummyProblemForPreProcess()
+    opt = _preprocess_dummy_opt(
+        problem,
+        analyze_valid=_DummyAnalyzeValid(
+            distance_matrix=[[0.10, 0.60], [0.35, 0.70], [0.50, 0.10]],
+            valid_xs=[0.20, 0.80],
+        ),
     )
     pp = PreProcess(opt)
 
@@ -167,9 +185,7 @@ def test_preprocess_restrict_x_values_by_valid_database():
 
 def test_preprocess_check_feasibility_sets_calculation_folder(monkeypatch):
     problem = _DummyProblemForPreProcess()
-    opt = type("Opt", (), {})()
-    opt.problem = problem
-    opt.dir_save = "run_dir"
+    opt = _preprocess_dummy_opt(problem, dir_save="run_dir")
     opt.mp_evaluation = None
     pp = PreProcess(opt)
 
@@ -188,20 +204,21 @@ def test_preprocess_check_feasibility_sets_calculation_folder(monkeypatch):
     monkeypatch.setattr(Database, "add_individual", _fake_add_individual)
     monkeypatch.setattr(Database, "evaluate_individuals", _fake_evaluate)
     xs = np.array([[0.1], [0.3], [0.9]], dtype=float)
-    flags = pp._check_pre_processing_feasibility(xs, pre_processing_problem=problem)
+    flags, id_list = pp._check_pre_processing_feasibility(xs, pre_processing_problem=problem)
 
     assert problem.calculation_folder == os.path.join("run_dir", "PreProcess")
     assert flags == [False, True, False]
+    assert id_list == [1, 2, 3]
 
 
 def test_preprocess_adjust_x_values_by_valid_database(monkeypatch):
     problem = _DummyProblemForPreProcess()
-    opt = type("Opt", (), {})()
-    opt.problem = problem
-    opt.dir_save = "tmp_dir"
-    opt.analyze_valid = _DummyAnalyzeValid(
-        distance_matrix=[[0.12, 0.40], [0.20, 0.60]],
-        valid_xs=[0.20, 0.80],
+    opt = _preprocess_dummy_opt(
+        problem,
+        analyze_valid=_DummyAnalyzeValid(
+            distance_matrix=[[0.12, 0.40], [0.20, 0.60]],
+            valid_xs=[0.20, 0.80],
+        ),
     )
     pp = PreProcess(opt)
 
@@ -210,7 +227,7 @@ def test_preprocess_adjust_x_values_by_valid_database(monkeypatch):
 
     xs_adjusted = np.array([[0.00], [1.10]], dtype=float)
 
-    def _fake_restrict(_xs, min_scaled_distance=0.01, max_scaled_distance=0.10):
+    def _fake_restrict(_xs, min_scaled_distance=0.01, max_scaled_distance=0.10, ID_list=None):
         # Ensure only infeasible rows are sent for adjustment.
         assert np.allclose(_xs, np.array([[0.05], [0.95]]))
         return xs_adjusted
@@ -219,3 +236,12 @@ def test_preprocess_adjust_x_values_by_valid_database(monkeypatch):
     out = pp._adjust_x_values_by_valid_database(xs, feasibility_flags)
 
     assert np.allclose(out, np.array([[0.00], [0.60], [1.10]]))
+
+
+def test_preprocess_adjust_x_feasibility_length_mismatch_raises():
+    problem = _DummyProblemForPreProcess()
+    opt = _preprocess_dummy_opt(problem)
+    pp = PreProcess(opt)
+    xs = np.array([[0.1], [0.2]], dtype=float)
+    with pytest.raises(ValueError, match="Length mismatch"):
+        pp._adjust_x_values_by_valid_database(xs, [True, True, False])

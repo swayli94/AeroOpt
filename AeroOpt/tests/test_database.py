@@ -36,10 +36,9 @@ class TestDatabaseBasics:
     def test_add_and_id_list(self, database, problem):
         a = _indi(problem, 0.2, 0.2, ID=1)
         assert database.add_individual(a) is True
-        # 当前实现中首次 add 会重复 append 一次（回归测试）
-        assert database.size == 2
+        assert database.size == 1
         assert database.get_ID_from_index(0) == 1
-        assert database.get_index_from_ID(1) in (0, 1)
+        assert database.get_index_from_ID(1) == 0
 
     def test_get_xs_ys(self, database, problem):
         _append_direct(database, _indi(problem, 0.3, 0.4, ID=10))
@@ -61,15 +60,25 @@ class TestDatabaseBasics:
 
 
 class TestDatabaseDuplication:
-    def test_check_duplication_current_behavior(self, database, problem):
+    def test_check_duplication_detects_same_x(self, database, problem):
         database.add_individual(_indi(problem, 0.5, 0.5, ID=1), check_duplication=False)
-        with pytest.raises(TypeError, match="unexpected keyword argument"):
-            database.check_duplication(np.array([0.5]))
+        is_dup, closest = database.check_duplication(np.array([0.5]))
+        assert is_dup is True
+        assert closest == 0
 
-    def test_add_second_individual_current_behavior(self, database, problem):
-        database.add_individual(_indi(problem, 0.25, 0.25, ID=1), check_duplication=False)
-        with pytest.raises(TypeError, match="unexpected keyword argument"):
-            database.add_individual(_indi(problem, 0.3, 0.3, ID=2), check_duplication=False)
+    def test_add_second_distinct_x_with_duplication_check_off(self, database, problem):
+        assert database.add_individual(
+            _indi(problem, 0.25, 0.25, ID=1), check_duplication=False
+        ) is True
+        assert database.add_individual(
+            _indi(problem, 0.3, 0.3, ID=2), check_duplication=False
+        ) is True
+        assert database.size == 2
+
+    def test_add_rejected_when_duplicate_and_check_on(self, database, problem):
+        database.add_individual(_indi(problem, 0.4, 0.4, ID=1), check_duplication=False)
+        assert database.add_individual(_indi(problem, 0.4, 0.4, ID=2)) is False
+        assert database.size == 1
 
 
 class TestDatabaseSubAndMerge:
@@ -93,8 +102,10 @@ class TestDatabaseSubAndMerge:
         assert inter.size == 1
         np.testing.assert_allclose(inter.individuals[0].x, [0.8])
 
-        with pytest.raises(TypeError, match="unexpected keyword argument"):
-            db1.merge_with_database(db2, deepcopy=True)
+        db1.merge_with_database(db2, deepcopy=True)
+        assert db1.size == 3
+        xs = sorted(db1.get_xs()[:, 0].tolist())
+        np.testing.assert_allclose(xs, [0.2, 0.8, 0.9], rtol=0, atol=1e-12)
 
 
 class TestDatabaseJsonIO:

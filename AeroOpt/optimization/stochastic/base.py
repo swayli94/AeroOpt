@@ -455,11 +455,31 @@ class OptEvolutionaryFramework(OptBaseFramework):
     mp_evaluation: MultiProcessEvaluation
         Multi-process evaluation object defined in the entrance of the entire program.
         If None, use serial evaluation.
+
+    Attributes:
+    -----------
+    iteration: int
+        The current iteration number.
     pre_process: PreProcess
         Pre-processing of the `db_candidate` database to be evaluated.
     post_process: PostProcess
         Post-processing of the `db_candidate` database after evaluation.
-        
+    db_total: Database
+        Total database, including all individuals.
+    db_valid: Database
+        Valid database, including only valid individuals.
+    db_elite: Database
+        Elite database, including only elite individuals.
+    db_candidate: Database
+        Population database, including only candidate individuals.
+    analyze_total: AnalyzeDatabase
+        Analysis of the total database to:
+        (1) avoid having duplicated individuals in `db_candidate`;
+        (2) find new candidates using potential-based search.
+    analyze_valid: AnalyzeDatabase
+        Analysis of the valid database to:
+        (1) adjust candidate input variables to be feasible.
+
     Example:
     ---------
     >>> def user_func(x: np.ndarray, **kwargs) -> Tuple[bool, np.ndarray]:
@@ -469,15 +489,12 @@ class OptEvolutionaryFramework(OptBaseFramework):
             optimization_settings: SettingsOptimization,
             evolutionary_algorithm: EvolutionaryAlgorithm = None,
             user_func: Callable = None,
-            mp_evaluation: MultiProcessEvaluation = None,
-            pre_process: PreProcess = None,
-            post_process: PostProcess = None):
+            mp_evaluation: MultiProcessEvaluation = None):
         
         super().__init__(
-                problem=problem, optimization_settings=optimization_settings, 
-                user_func=user_func, mp_evaluation=mp_evaluation, 
-                pre_process=pre_process, post_process=post_process)
-        
+                problem=problem, optimization_settings=optimization_settings,
+                user_func=user_func, mp_evaluation=mp_evaluation)
+
         if evolutionary_algorithm is None:
             self.evolutionary_algorithm = EvolutionaryAlgorithm()
         else:
