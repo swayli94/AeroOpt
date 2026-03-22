@@ -52,5 +52,11 @@
         "pow_poly": 20.0,
         "reserve_ratio": 0.3,
         "n_partitions": null
+    },
+    "example_SettingsDE": {
+        "type": "SettingsDE",
+        "name": "default",
+        "scale_factor": 0.5,
+        "cross_prob": 0.9
     }
 }

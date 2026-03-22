@@ -7,10 +7,10 @@ Example: demonstrate the NSGA-III algorithm.
   3) xi in [0, 1]
   4) constraint1: x1^2 + x2^2 - 0.64 <= 0.0
 
-- Create a NSGA-III algorithm object `nsgaiii`.
+- Load NSGA-III algorithm settings (`SettingsNSGAIII`).
 
 - Create a NSGA-III optimization object `opt_nsgaiii`:
-  1) use `nsgaiii` as the evolutionary algorithm
+  1) use those algorithm settings for crossover/mutation and reference points
   2) use mp_evaluation for evaluation
   3) population size = 32
   4) max_iterations = 20
@@ -41,16 +41,25 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+EXAMPLE_DIR = Path(__file__).resolve().parents[1]
+if str(EXAMPLE_DIR) not in sys.path:
+    sys.path.insert(0, str(EXAMPLE_DIR))
+
+from examples_common import (
+    MAX_ITERATIONS,
+    N_INPUT,
+    POPULATION_SIZE,
+    PLOT_F1_LIM,
+    PLOT_F2_LIM_BY_BENCHMARK,
+    apply_benchmark_seeds,
+)
+
 from AeroOpt.core import Problem, MultiProcessEvaluation, SettingsData, SettingsProblem
 
 from AeroOpt.optimization import (
-    NSGAIII, OptNSGAIII, SettingsOptimization
+    OptNSGAIII, SettingsNSGAIII, SettingsOptimization,
 )
 from AeroOpt.utils import benchmark as bench
-
-N_INPUT = 3
-POPULATION_SIZE = 32
-MAX_ITERATIONS = 20
 
 BENCHMARKS: list[tuple[str, Callable[[np.ndarray], np.ndarray]]] = [
     ("ZDT1", bench.ZDT1),
@@ -61,8 +70,11 @@ BENCHMARKS: list[tuple[str, Callable[[np.ndarray], np.ndarray]]] = [
 ]
 
 
-def build_settings_file(settings_path: Path, work_dir: Path) -> None:
+def build_settings_file(
+    settings_path: Path, work_dir: Path, benchmark_name: str,
+    ) -> None:
     name_inputs = [f"x{i}" for i in range(1, N_INPUT + 1)]
+    f2_lo, f2_hi = PLOT_F2_LIM_BY_BENCHMARK[benchmark_name]
     settings = {
         "zdt_nsgaiii_data": {
             "type": "SettingsData",
@@ -72,8 +84,8 @@ def build_settings_file(settings_path: Path, work_dir: Path) -> None:
             "input_upp": [1.0] * N_INPUT,
             "input_precision": [0.0] * N_INPUT,
             "name_output": ["y1", "y2"],
-            "output_low": [-0.5, -1.0],
-            "output_upp": [1.5, 20.0],
+            "output_low": [PLOT_F1_LIM[0], f2_lo],
+            "output_upp": [PLOT_F1_LIM[1], f2_hi],
             "output_precision": [0.0, 0.0],
             "critical_scaled_distance": 1.0e-8,
         },
@@ -191,10 +203,12 @@ def run_one_benchmark(
     bench_fn: Callable[[np.ndarray], np.ndarray],
     work_dir: Path,
     mp_eval: MultiProcessEvaluation,
+    bench_index: int,
+    benchmark_name: str,
     ) -> OptNSGAIII:
     work_dir.mkdir(parents=True, exist_ok=True)
     settings_path = work_dir / "settings.json"
-    build_settings_file(settings_path, work_dir)
+    build_settings_file(settings_path, work_dir, benchmark_name)
 
     data = SettingsData("zdt_nsgaiii_data", fname_settings=str(settings_path))
     problem = Problem(
@@ -204,16 +218,17 @@ def run_one_benchmark(
     opt_settings = SettingsOptimization("zdt_nsgaiii_opt", fname_settings=str(settings_path))
     opt_settings.working_directory = str(work_dir)
 
-    nsgaiii = NSGAIII(settings_name="zdt_nsgaiii_alg", fname_settings=str(settings_path))
+    alg_settings = SettingsNSGAIII("zdt_nsgaiii_alg", fname_settings=str(settings_path))
     user_func = functools.partial(_benchmark_user_func, bench_fn=bench_fn)
 
     opt = OptNSGAIII(
         problem=problem,
         optimization_settings=opt_settings,
-        evolutionary_algorithm=nsgaiii,
+        algorithm_settings=alg_settings,
         user_func=user_func,
         mp_evaluation=mp_eval,
     )
+    apply_benchmark_seeds(bench_index)
     opt.main()
     return opt
 
@@ -242,8 +257,10 @@ def main() -> None:
     for i, (ax, (bname, bfn)) in enumerate(zip(axes, BENCHMARKS)):
         print(f"NSGA-III example: running {bname} ...", flush=True)
         subdir = run_root / bname
-        opt = run_one_benchmark(bfn, subdir, mp_eval)
+        opt = run_one_benchmark(bfn, subdir, mp_eval, bench_index=i, benchmark_name=bname)
         plot_subplot(ax, opt, bname, MAX_ITERATIONS, show_pareto_label=True)
+        ax.set_xlim(PLOT_F1_LIM)
+        ax.set_ylim(PLOT_F2_LIM_BY_BENCHMARK[bname])
 
     sm = plt.cm.ScalarMappable(
         cmap=plt.cm.viridis, norm=plt.Normalize(vmin=0, vmax=MAX_ITERATIONS)

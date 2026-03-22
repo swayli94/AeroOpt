@@ -6,23 +6,24 @@ from AeroOpt.optimization.base import (
 )
 
 from AeroOpt.optimization.settings import (
-    SettingsOptimization, SettingsNSGAII, SettingsNSGAIII
+    SettingsOptimization, SettingsNSGAII, SettingsNSGAIII, SettingsDE
 )
 
-from AeroOpt.optimization.stochastic.base import (
-    EvolutionaryAlgorithm, OptEvolutionaryFramework
+from AeroOpt.optimization.moea import (
+    DominanceBasedAlgorithm,
 )
 
 from AeroOpt.optimization.stochastic.nsgaii import NSGAII, OptNSGAII
 from AeroOpt.optimization.stochastic.nsgaiii import NSGAIII, OptNSGAIII
+from AeroOpt.optimization.stochastic.de import DiffEvolution, OptDE
 
 
 __all__ = [
     'OptBaseFramework',
     'PreProcess',
     'PostProcess',
-    'EvolutionaryAlgorithm',
-    'OptEvolutionaryFramework',
+    
+    'DominanceBasedAlgorithm',
     'SettingsOptimization',
     
     'SettingsNSGAII',
@@ -32,4 +33,8 @@ __all__ = [
     'SettingsNSGAIII',
     'NSGAIII',
     'OptNSGAIII',
+
+    'SettingsDE',
+    'DiffEvolution',
+    'OptDE',
 ]

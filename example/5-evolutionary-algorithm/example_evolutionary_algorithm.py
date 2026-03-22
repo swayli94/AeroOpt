@@ -1,5 +1,5 @@
 '''
-Example: demonstrate the functions in `EvolutionaryAlgorithm` class.
+Example: demonstrate dominance-based MOEA helpers (`DominanceBasedAlgorithm`).
 
 - Create a problem `problem`:
   1) n_input=2, n_output=2, n_constraint=1
@@ -13,14 +13,10 @@ Example: demonstrate the functions in `EvolutionaryAlgorithm` class.
   2) use `xs` to build `db`
   3) evaluate individuals with `db.evaluate_individuals` (serial evaluation)
 
-- Test the functions in `EvolutionaryAlgorithm` class (plot figures for demonstration):
-  1) `EvolutionaryAlgorithm.fast_non_dominated_ranking`
-  2) `EvolutionaryAlgorithm.pareto_dominance`
-  3) `EvolutionaryAlgorithm.faster_non_dominated_ranking`
-  4) `EvolutionaryAlgorithm.assign_crowding_distance`
-  5) `EvolutionaryAlgorithm.select_population_indices`
-  6) `EvolutionaryAlgorithm.rank_pareto`
-  7) `EvolutionaryAlgorithm.shrink_population`
+- Plot / verify:
+  `check_pareto_dominance`, `non_dominated_ranking`, `assign_crowding_distance`,
+  `select_parent_indices`, `rank_pareto`, and truncation via `select_parent_indices`
+  after sorting.
 '''
 
 from __future__ import annotations
@@ -40,7 +36,8 @@ from AeroOpt.core import (
     Database, Individual, Problem, SettingsProblem, SettingsData
 )
 from AeroOpt.optimization import (
-    EvolutionaryAlgorithm, SettingsOptimization
+    DominanceBasedAlgorithm,
+    SettingsOptimization,
 )
 
 
@@ -123,24 +120,6 @@ def get_objectives_matrix(db: Database) -> np.ndarray:
     return ys
 
 
-def verify_fast_vs_faster_ranking(db_source: Database) -> None:
-    d1 = clone_database(db_source)
-    EvolutionaryAlgorithm.fast_non_dominated_ranking(d1)
-    r1 = collect_ranks(d1)
-
-    d2 = clone_database(db_source)
-    fronts = EvolutionaryAlgorithm.faster_non_dominated_ranking(d2, is_valid_database=False)
-    r2 = collect_ranks(d2)
-
-    if not np.array_equal(r1, r2):
-        raise AssertionError("fast_non_dominated_ranking and faster_non_dominated_ranking disagree on pareto_rank")
-
-    covered = sorted(i for front in fronts for i in front)
-    expected = list(range(db_source.size))
-    if covered != expected:
-        raise AssertionError("faster_non_dominated_ranking fronts do not partition indices")
-
-
 def verify_faster_valid_flag_on_feasible_subset(db_source: Database) -> None:
     feas_idx = [
         i
@@ -153,17 +132,19 @@ def verify_faster_valid_flag_on_feasible_subset(db_source: Database) -> None:
     sub = db_source.get_sub_database(index_list=feas_idx, deepcopy=True)
 
     d_obj = clone_database(sub)
-    EvolutionaryAlgorithm.faster_non_dominated_ranking(d_obj, is_valid_database=True)
+    d_obj._is_valid_database = True
+    DominanceBasedAlgorithm.non_dominated_ranking(d_obj)
     r_obj = collect_ranks(d_obj)
 
     d_indi = clone_database(sub)
-    EvolutionaryAlgorithm.faster_non_dominated_ranking(d_indi, is_valid_database=False)
+    d_indi._is_valid_database = False
+    DominanceBasedAlgorithm.non_dominated_ranking(d_indi)
     r_indi = collect_ranks(d_indi)
 
     if not np.array_equal(r_obj, r_indi):
         raise AssertionError(
-            "On feasible individuals, faster_non_dominated_ranking(is_valid_database=True) "
-            "should match is_valid_database=False"
+            "On feasible individuals, ranking with scaled objectives (valid DB) "
+            "should match Individual.check_dominance (non-valid DB flag)."
         )
 
 
@@ -175,13 +156,9 @@ def demo_pareto_dominance_print(problem: Problem) -> None:
     ]
     print("\n[pareto_dominance] unified objective vectors (min y1 -> negate y1; max y2 -> keep y2):")
     for ya, yb, note in pairs:
-        ua = EvolutionaryAlgorithm._get_unified_objectives(
-            _db_from_y_row(problem, ya),
-        )[0, :]
-        ub = EvolutionaryAlgorithm._get_unified_objectives(
-            _db_from_y_row(problem, yb),
-        )[0, :]
-        flag = EvolutionaryAlgorithm.pareto_dominance(ua, ub)
+        ua = _db_from_y_row(problem, ya).get_unified_objectives(scale=False)[0, :]
+        ub = _db_from_y_row(problem, yb).get_unified_objectives(scale=False)[0, :]
+        flag = DominanceBasedAlgorithm.check_pareto_dominance(ua, ub)
         print(f"  u_a={ua} vs u_b={ub}  -> {flag}  ({note})")
 
 
@@ -322,7 +299,7 @@ def plot_crowding_and_selection(
     ax.set_title(f"Environmental selection (n={len(selected_idx)})")
     ax.grid(alpha=0.25)
 
-    fig.suptitle(f"assign_crowding_distance + select_population_indices (ranks 1..{int(ranks.max())})", fontsize=11)
+    fig.suptitle(f"assign_crowding_distance + select_parent_indices (ranks 1..{int(ranks.max())})", fontsize=11)
     fig.tight_layout()
     out = base_dir / "ea_crowding_selection.png"
     fig.savefig(out, dpi=160, bbox_inches="tight")
@@ -371,7 +348,7 @@ def plot_rank_pareto_sort_and_shrink(
     )
     ax.set_xlabel("y1")
     ax.set_ylabel("y2")
-    ax.set_title("shrink_population (worst removed from sorted tail)")
+    ax.set_title("truncation via select_parent_indices after rank_pareto")
     ax.grid(alpha=0.25)
     ax.legend(loc="best", fontsize=8)
 
@@ -401,24 +378,25 @@ def main() -> None:
     db = build_candidate_database(problem=problem, xs=xs, id_start=1)
     db.evaluate_individuals(user_func=user_func)
 
-    verify_fast_vs_faster_ranking(db)
     verify_faster_valid_flag_on_feasible_subset(db)
     demo_pareto_dominance_print(problem)
 
     db_work = clone_database(db)
-    fronts = EvolutionaryAlgorithm.faster_non_dominated_ranking(db_work, is_valid_database=False)
-    EvolutionaryAlgorithm.assign_crowding_distance(db_work, fronts)
+    db_work._is_valid_database = False
+    fronts = DominanceBasedAlgorithm.non_dominated_ranking(db_work)
+    DominanceBasedAlgorithm.assign_crowding_distance(db_work)
 
     population_size = 40
-    selected = EvolutionaryAlgorithm.select_population_indices(db_work, fronts, population_size=population_size)
+    selected = DominanceBasedAlgorithm.select_parent_indices(db_work, n_select=population_size)
     if len(selected) != population_size:
-        raise AssertionError("select_population_indices length mismatch")
+        raise AssertionError("select_parent_indices length mismatch")
 
     fig1 = plot_decision_and_objective_space(base_dir, db_work, fronts)
     fig2 = plot_crowding_and_selection(base_dir, db_work, fronts, selected)
 
     db_rank = clone_database(db)
-    EvolutionaryAlgorithm.rank_pareto(db_rank, is_valid_database=False)
+    db_rank._is_valid_database = False
+    DominanceBasedAlgorithm.rank_pareto(db_rank)
     if not db_rank.sorted:
         raise AssertionError("rank_pareto should mark database sorted")
 
@@ -429,14 +407,16 @@ def main() -> None:
         if a.pareto_rank > b.pareto_rank:
             raise AssertionError("rank_pareto sort: pareto_rank should be non-decreasing")
 
-    np.random.seed(7)
-    db_shrink = clone_database(db_rank)
     target_n = 55
-    EvolutionaryAlgorithm.shrink_population(db_shrink, population_size=target_n, reserve_ratio=0.25)
+    # Use ranked `db_rank` directly: a full `clone_database` copy does not carry
+    # `_index_pareto_fronts`, which `select_parent_indices` requires.
+    idx_keep = DominanceBasedAlgorithm.select_parent_indices(db_rank, n_select=target_n)
+    db_shrink = db_rank.get_sub_database(index_list=idx_keep, deepcopy=True)
     if db_shrink.size != target_n:
-        raise AssertionError(f"shrink_population: expected size {target_n}, got {db_shrink.size}")
+        raise AssertionError(f"truncation: expected size {target_n}, got {db_shrink.size}")
 
-    EvolutionaryAlgorithm.rank_pareto(db_shrink, is_valid_database=False)
+    db_shrink._is_valid_database = False
+    DominanceBasedAlgorithm.rank_pareto(db_shrink)
 
     fig3 = plot_rank_pareto_sort_and_shrink(base_dir, db_rank, db_shrink)
 
@@ -446,7 +426,6 @@ def main() -> None:
         if indi.valid_evaluation and indi.sum_violation is not None and indi.sum_violation <= 0.0
     )
     print(f"[DATABASE] n={db.size}, feasible={n_feas}")
-    print(f"[VERIFY] fast_non_dominated_ranking == faster_non_dominated_ranking (ranks): OK")
     print(f"[VERIFY] feasible subset: is_valid_database True/False: OK (if n_feas>=3)")
     print(f"[RANK] max pareto_rank = {int(ranks_sorted.max())}, fronts = {len(fronts)}")
     print(f"[SELECT] first {population_size} indices by rank + crowding: OK")

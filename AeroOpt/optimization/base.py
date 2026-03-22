@@ -46,9 +46,10 @@ class OptBaseFramework(object):
     db_valid: Database
         Valid database, containing all the feasible individuals.
     db_elite: Database
-        Elite database, only contains the elite individuals in the current iteration.
+        Elite database, containing the elite individuals, e.g., Pareto-optimal solutions.
     db_candidate: Database
-        Population database, only contains the candidate individuals in the current iteration.
+        Population database, containing the candidate individuals,
+        e.g., initial population, offspring individuals, etc.
     analyze_total: AnalyzeDatabase
         Analysis of the total database to:
         (1) avoid having duplicated individuals in `db_candidate`;
@@ -166,7 +167,9 @@ class OptBaseFramework(object):
         '''
         Maximum ID of the individuals in the total database.
         '''
-        return np.max(self.db_total._id_list)
+        if self.db_total.size <= 0:
+            return 0
+        return int(np.max(self.db_total._id_list))
 
     #* Main procedures
     
@@ -297,7 +300,7 @@ class OptBaseFramework(object):
         which are stored in `db_candidate` database before evaluation.
         The `db_candidate` database is generated from `db_valid` database:
         
-        - select parent database from `db_valid`
+        - create a temporary parent database by selection from `db_valid`
         - evolution (crossover, mutation, etc.) of the parent database
         - add user-defined new individuals
         - search new candidates from surrogate models
@@ -350,7 +353,11 @@ class OptBaseFramework(object):
     #! Needs to be implemented
     def select_elite_from_valid(self) -> None:
         '''
-        Select elite individuals from the valid database.
+        Select elite individuals from the valid database:
+        
+        - Pareto-dominance ranking (e.g., NSGA-II)
+        - Crowding-distance assignment (e.g., NSGA-II)
+        - other selection methods (e.g., RVEA, MOEA/D, etc.)
         '''
         raise NotImplementedError('Not implemented.')
 

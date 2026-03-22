@@ -84,6 +84,12 @@ def test_base_properties(problem, optimization_settings):
     assert opt.dir_runfiles.endswith("Runfiles")
 
 
+def test_max_id_zero_when_total_empty(problem, optimization_settings):
+    opt = _make_opt(problem, optimization_settings)
+    assert opt.db_total.size == 0
+    assert opt.max_ID == 0
+
+
 def test_assign_id_to_candidate_individuals(problem, optimization_settings):
     opt = _make_opt(problem, optimization_settings)
     _append_direct(opt.db_total, Individual(problem, x=np.array([0.2]), y=np.array([0.1]), ID=10))

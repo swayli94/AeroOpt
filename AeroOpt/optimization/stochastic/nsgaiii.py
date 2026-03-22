@@ -19,29 +19,23 @@ from AeroOpt.core import (
     Database,
     MultiProcessEvaluation,
 )
-from AeroOpt.optimization.stochastic.nsgaii import NSGAII
-from AeroOpt.optimization.stochastic.base import (
-    OptEvolutionaryFramework,
-    EvolutionaryAlgorithm,
+
+from AeroOpt.optimization.moea import DominanceBasedAlgorithm
+from AeroOpt.optimization.utils import (
+    binary_tournament_selection,
+    polynomial_mutation,
+    sbx_crossover,
 )
+from AeroOpt.optimization.base import OptBaseFramework
 from AeroOpt.optimization.settings import (
     SettingsNSGAIII, SettingsOptimization
 )
 
 
-class NSGAIII(NSGAII):
+class NSGAIII(object):
     '''
-    NSGA-III: same variation operators as NSGA-II; the temporary parent pool
-    (see `build_temporary_parent_database`) is filled using reference points
-    and niche preservation instead of crowding distance.
+    NSGA-III operators.
     '''
-
-    def __init__(self, settings_name: str = "default",
-            fname_settings: str = 'settings.json'):
-
-        EvolutionaryAlgorithm.__init__(self, algorithm_name='NSGAIII')
-        self.settings = SettingsNSGAIII(
-            name=settings_name, fname_settings=fname_settings)
 
     @staticmethod
     def suggest_n_partitions(n_objective: int, population_size: int) -> int:
@@ -145,7 +139,7 @@ class NSGAIII(NSGAII):
         return best_j, best_d
 
     @staticmethod
-    def select_population_indices_nsgaiii(
+    def select_population_indices(
             db: Database,
             fronts: List[List[int]],
             population_size: int,
@@ -157,8 +151,8 @@ class NSGAIII(NSGAII):
         '''
         n_obj = db.problem.n_objective
         if n_obj <= 1 or ref_points.size == 0:
-            return EvolutionaryAlgorithm.select_population_indices(
-                db, fronts, population_size)
+            return DominanceBasedAlgorithm.select_parent_indices(
+                db, population_size)
 
         selected: List[int] = []
         for front in fronts:
@@ -226,6 +220,24 @@ class NSGAIII(NSGAII):
         return selected
 
     @staticmethod
+    def environmental_selection(
+            combined: Database,
+            population_size: int,
+            n_partitions: int,
+            ) -> List[int]:
+        '''
+        Indices of individuals to keep (length <= population_size).
+        '''
+        if combined.size <= 0:
+            return []
+        fronts = DominanceBasedAlgorithm.non_dominated_ranking(combined)
+        n_obj = combined.problem.n_objective
+        p = max(1, int(n_partitions))
+        ref_pts = NSGAIII.das_dennis_reference_points(n_obj, p)
+        return NSGAIII.select_population_indices(
+            combined, fronts, population_size, ref_pts)
+
+    @staticmethod
     def build_temporary_parent_database(
             db_valid: Database,
             population_size: int,
@@ -240,10 +252,10 @@ class NSGAIII(NSGAII):
 
         db_work = db_valid.get_sub_database(
             index_list=list(range(db_valid.size)), deepcopy=True)
-        fronts = EvolutionaryAlgorithm.faster_non_dominated_ranking(
-            db_work, is_valid_database=True)
+        DominanceBasedAlgorithm.non_dominated_ranking(
+            db_work)
         if db_work.size <= population_size:
-            EvolutionaryAlgorithm.assign_crowding_distance(db_work, fronts)
+            DominanceBasedAlgorithm.assign_crowding_distance(db_work)
             return db_work
         p = n_partitions
         if p is None:
@@ -251,25 +263,6 @@ class NSGAIII(NSGAII):
                 db_valid.problem.n_objective, population_size)
         idx = NSGAIII.environmental_selection(db_work, population_size, p)
         return db_work.get_sub_database(index_list=idx, deepcopy=True)
-
-    @staticmethod
-    def environmental_selection(
-            combined: Database,
-            population_size: int,
-            n_partitions: int,
-            ) -> List[int]:
-        '''
-        Indices of individuals to keep (length <= population_size).
-        '''
-        if combined.size <= 0:
-            return []
-        fronts = EvolutionaryAlgorithm.faster_non_dominated_ranking(
-            combined, is_valid_database=True)
-        n_obj = combined.problem.n_objective
-        p = max(1, int(n_partitions))
-        ref_pts = NSGAIII.das_dennis_reference_points(n_obj, p)
-        return NSGAIII.select_population_indices_nsgaiii(
-            combined, fronts, population_size, ref_pts)
 
     @staticmethod
     def generate_candidate_individuals(
@@ -292,7 +285,7 @@ class NSGAIII(NSGAII):
 
         temp_parents = NSGAIII.build_temporary_parent_database(
             db_valid, population_size, n_partitions=n_partitions)
-        mating_population = NSGAII.binary_tournament_selection(
+        mating_population = binary_tournament_selection(
             pool=temp_parents, n_select=population_size)
 
         db_candidate.empty_database()
@@ -303,14 +296,14 @@ class NSGAIII(NSGAII):
             p1 = mating_population[i1]
             p2 = mating_population[i2]
 
-            x1, x2 = NSGAII.sbx_crossover(
+            x1, x2 = sbx_crossover(
                 p1.x, p2.x, problem=db_candidate.problem,
                 cross_rate=cross_rate, pow_sbx=pow_sbx)
 
-            x1 = NSGAII.polynomial_mutation(
+            x1 = polynomial_mutation(
                 x1, problem=db_candidate.problem,
                 mut_rate=mut_rate, pow_poly=pow_poly)
-            x2 = NSGAII.polynomial_mutation(
+            x2 = polynomial_mutation(
                 x2, problem=db_candidate.problem,
                 mut_rate=mut_rate, pow_poly=pow_poly)
 
@@ -325,7 +318,7 @@ class NSGAIII(NSGAII):
                     deepcopy=False, print_warning_info=False)
 
 
-class OptNSGAIII(OptEvolutionaryFramework):
+class OptNSGAIII(OptBaseFramework):
     '''
     NSGA-III optimization (reference-point truncation for the mating pool).
     '''
@@ -333,7 +326,7 @@ class OptNSGAIII(OptEvolutionaryFramework):
     def __init__(self,
             problem: Problem,
             optimization_settings: SettingsOptimization,
-            evolutionary_algorithm: NSGAIII,
+            algorithm_settings: SettingsNSGAIII,
             user_func=None,
             mp_evaluation: MultiProcessEvaluation = None,
             ):
@@ -341,13 +334,14 @@ class OptNSGAIII(OptEvolutionaryFramework):
         super().__init__(
             problem=problem,
             optimization_settings=optimization_settings,
-            evolutionary_algorithm=evolutionary_algorithm,
             user_func=user_func,
             mp_evaluation=mp_evaluation)
+        
+        self.algorithm_settings = algorithm_settings
 
     def generate_candidate_individuals(self) -> None:
         mute_rate = (
-            self.evolutionary_algorithm.settings.mut_rate
+            self.algorithm_settings.mut_rate
             / max(self.problem.n_input, 1))
 
         NSGAIII.generate_candidate_individuals(
@@ -355,8 +349,14 @@ class OptNSGAIII(OptEvolutionaryFramework):
             db_candidate=self.db_candidate,
             population_size=self.population_size,
             iteration=self.iteration,
-            cross_rate=self.evolutionary_algorithm.settings.cross_rate,
-            pow_sbx=self.evolutionary_algorithm.settings.pow_sbx,
+            cross_rate=self.algorithm_settings.cross_rate,
+            pow_sbx=self.algorithm_settings.pow_sbx,
             mut_rate=mute_rate,
-            pow_poly=self.evolutionary_algorithm.settings.pow_poly,
-            n_partitions=self.evolutionary_algorithm.settings.n_partitions)
+            pow_poly=self.algorithm_settings.pow_poly,
+            n_partitions=self.algorithm_settings.n_partitions)
+
+    def select_elite_from_valid(self) -> None:
+        '''
+        Select elite individuals from the valid database.
+        '''
+        DominanceBasedAlgorithm.select_elite_from_valid(self.db_valid, self.db_elite)

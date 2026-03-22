@@ -7,7 +7,10 @@ from AeroOpt.core import (
     Database, Individual, Problem, SettingsData, SettingsProblem
 )
 from AeroOpt.optimization import (
-    EvolutionaryAlgorithm, OptEvolutionaryFramework, SettingsOptimization
+    DominanceBasedAlgorithm,
+    OptNSGAII,
+    SettingsNSGAII,
+    SettingsOptimization,
 )
 
 
@@ -33,40 +36,63 @@ def optimization_settings(settings_path, tmp_path):
     return s
 
 
-def test_evolutionary_pareto_dominance():
-    # Vectors are in unified (all-minimize) space where larger values are better along each axis.
-    assert EvolutionaryAlgorithm.pareto_dominance(np.array([1.0, 2.0]), np.array([1.0, 2.0])) == 0
-    assert EvolutionaryAlgorithm.pareto_dominance(np.array([2.0, 2.0]), np.array([1.0, 1.0])) == 1
-    assert EvolutionaryAlgorithm.pareto_dominance(np.array([1.0, 1.0]), np.array([2.0, 2.0])) == -1
-    assert EvolutionaryAlgorithm.pareto_dominance(np.array([1.0, 2.0]), np.array([2.0, 1.0])) == 9
+def test_dominance_check_pareto_dominance():
+    assert DominanceBasedAlgorithm.check_pareto_dominance(
+        np.array([1.0, 2.0]), np.array([1.0, 2.0])) == 0
+    assert DominanceBasedAlgorithm.check_pareto_dominance(
+        np.array([2.0, 2.0]), np.array([1.0, 1.0])) == 1
+    assert DominanceBasedAlgorithm.check_pareto_dominance(
+        np.array([1.0, 1.0]), np.array([2.0, 2.0])) == -1
+    assert DominanceBasedAlgorithm.check_pareto_dominance(
+        np.array([1.0, 2.0]), np.array([2.0, 1.0])) == 9
 
 
-def test_evolutionary_get_unified_objectives_empty(problem):
+def test_get_unified_objectives_empty(problem):
     db = Database(problem, database_type="valid")
-    ys = EvolutionaryAlgorithm._get_unified_objectives(db)
+    ys = db.get_unified_objectives(scale=False)
     assert ys.shape == (0, 0)
 
 
-def test_evolutionary_get_unified_objectives_minimize(problem):
+def test_get_unified_objectives_minimize(problem):
     db = Database(problem, database_type="valid")
     indi = Individual(problem, x=np.array([0.5]), y=np.array([0.4]), ID=1)
     db.add_individual(indi)
-    ys = EvolutionaryAlgorithm._get_unified_objectives(db)
+    ys = db.get_unified_objectives(scale=False)
     assert ys.shape == (1, 1)
     assert np.allclose(ys[0, 0], -0.4)
 
 
-def test_faster_non_dominated_ranking_single_objective(problem):
+def test_non_dominated_ranking_single_objective(problem):
     db = Database(problem, database_type="valid")
     db.add_individual(Individual(problem, x=np.array([0.2]), y=np.array([0.8]), ID=1))
     db.add_individual(Individual(problem, x=np.array([0.3]), y=np.array([0.2]), ID=2))
-    fronts = EvolutionaryAlgorithm.faster_non_dominated_ranking(db, is_valid_database=False)
+    fronts = DominanceBasedAlgorithm.non_dominated_ranking(db)
     assert len(fronts) >= 1
     assert db.individuals[1].pareto_rank == 1
     assert db.individuals[0].pareto_rank == 2
 
 
-def test_select_population_indices_respects_crowding():
+def test_rank_pareto_remaps_front_indices_after_sort(problem):
+    db = Database(problem, database_type="valid")
+    for i, (x, y) in enumerate(
+            [(0.2, 0.4), (0.3, 0.1), (0.5, 0.2), (0.8, 0.35)], start=1):
+        indi = Individual(problem, x=np.array([x]), y=np.array([y]), ID=i)
+        indi.eval_constraints()
+        db.add_individual(indi, check_duplication=False, print_warning_info=False)
+    db._is_valid_database = True
+    DominanceBasedAlgorithm.rank_pareto(db)
+    assert db._sorted
+    best_id = 2
+    front0 = db._index_pareto_fronts[0]
+    assert front0
+    assert all(0 <= j < db.size for j in front0)
+    assert {db.individuals[j].ID for j in front0} == {best_id}
+    picked = DominanceBasedAlgorithm.select_parent_indices(db, n_select=1)
+    assert len(picked) == 1
+    assert db.individuals[picked[0]].ID == best_id
+
+
+def test_select_parent_indices_respects_crowding():
     class _P:
         pass
 
@@ -76,40 +102,36 @@ def test_select_population_indices_respects_crowding():
 
     db = type("Db", (), {})()
     db.individuals = [_Indi(0.1), _Indi(0.5), _Indi(0.2)]
-    fronts = [[0, 1, 2]]
-    out = EvolutionaryAlgorithm.select_population_indices(db, fronts, population_size=2)
+    db._index_pareto_fronts = [[0, 1, 2]]
+    out = DominanceBasedAlgorithm.select_parent_indices(db, n_select=2)
     assert set(out) == {1, 2}
 
 
-def test_opt_evolutionary_select_elite_empty_valid(problem, optimization_settings):
-    opt = OptEvolutionaryFramework(problem=problem, optimization_settings=optimization_settings)
+def test_opt_nsgaii_select_elite_empty_valid(problem, optimization_settings, settings_path):
+    algo = SettingsNSGAII("default", fname_settings=settings_path)
+    opt = OptNSGAII(
+        problem=problem,
+        optimization_settings=optimization_settings,
+        algorithm_settings=algo,
+    )
     opt.db_valid = Database(problem, database_type="valid")
     opt.select_elite_from_valid()
     assert opt.db_elite.size == 0
 
 
-def test_opt_evolutionary_select_elite_from_valid(problem, optimization_settings):
-    opt = OptEvolutionaryFramework(problem=problem, optimization_settings=optimization_settings)
+def test_opt_nsgaii_select_elite_from_valid(problem, optimization_settings, settings_path):
+    algo = SettingsNSGAII("default", fname_settings=settings_path)
+    opt = OptNSGAII(
+        problem=problem,
+        optimization_settings=optimization_settings,
+        algorithm_settings=algo,
+    )
     opt.db_valid = Database(problem, database_type="valid")
     opt.db_valid.add_individual(Individual(problem, x=np.array([0.2]), y=np.array([0.3]), ID=1))
     opt.db_valid.add_individual(Individual(problem, x=np.array([0.4]), y=np.array([0.5]), ID=2))
     opt.select_elite_from_valid()
     assert opt.db_elite.size >= 1
     assert all(indi.pareto_rank == 1 for indi in opt.db_elite.individuals)
-
-
-def test_evolutionary_algorithm_str_repr():
-    ea = EvolutionaryAlgorithm("NSGA-II")
-    assert str(ea) == "NSGA-II"
-    assert repr(ea) == "NSGA-II"
-
-
-def test_save_elite_clears_elite_when_source_empty(problem):
-    db = Database(problem, database_type="valid")
-    elite = Database(problem, database_type="elite")
-    elite.add_individual(Individual(problem, x=np.array([0.1]), y=np.array([0.1]), ID=99))
-    EvolutionaryAlgorithm.save_elite(db, elite, is_db_valid=False)
-    assert elite.size == 0
 
 
 def test_copy_from_database_requires_same_problem_instance(settings_path):

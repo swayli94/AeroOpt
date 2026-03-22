@@ -124,6 +124,51 @@ class SettingsNSGAII(object):
         return None
 
 
+class SettingsDE(object):
+    '''
+    Settings for differential evolution (DE/rand/1/bin).
+
+    Parameters:
+    -----------
+    name: str
+        Name of the DE settings block in the JSON file.
+    fname_settings: str
+        Path to the settings file. Default is ``settings.json``.
+    '''
+    def __init__(self, name: str,
+            fname_settings: str = 'settings.json'):
+
+        self.name = name
+        self.scale_factor: float = 0.5
+        self.cross_prob: float = 0.9
+
+        self.read_settings(fname_settings)
+
+    def read_settings(self, fname_settings: str) -> None:
+        '''
+        Read settings from json file.
+        '''
+        if not os.path.exists(fname_settings):
+            raise FileNotFoundError(f'Settings file {fname_settings} not found.')
+
+        with open(fname_settings, 'r', encoding='utf-8') as f:
+            settings = json.load(f)
+
+        settings_de = None
+        for entry_name, entry_data in settings.items():
+            if entry_data['type'] == 'SettingsDE' and entry_data['name'] == self.name:
+                print(f'>>> SettingsDE {self.name} ({entry_name}) read successfully.')
+                settings_de = entry_data
+
+        if settings_de is None:
+            raise ValueError(f'SettingsDE {self.name} not found in {fname_settings}.')
+
+        self.scale_factor = float(settings_de['scale_factor'])
+        self.cross_prob = float(settings_de['cross_prob'])
+
+        return None
+
+
 class SettingsNSGAIII(object):
     '''
     Settings of NSGA-III algorithm (same GA operators as NSGA-II, plus reference points).

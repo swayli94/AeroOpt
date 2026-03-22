@@ -6,7 +6,14 @@ import pytest
 
 from AeroOpt.core import Database, Individual, Problem, SettingsData, SettingsProblem
 from AeroOpt.optimization import (
-    SettingsOptimization, EvolutionaryAlgorithm, NSGAII
+    SettingsOptimization,
+    DominanceBasedAlgorithm,
+    NSGAII,
+)
+from AeroOpt.optimization.utils import (
+    binary_tournament_selection,
+    polynomial_mutation,
+    sbx_crossover,
 )
 
 @pytest.fixture(scope="module")
@@ -46,10 +53,11 @@ def _fill(db: Database, individuals):
 def test_pareto_dominance_cases():
     y = np.array([1.0, 1.0])
     y2 = np.array([2.0, 3.0])
-    assert EvolutionaryAlgorithm.pareto_dominance(y, y2) == -1
-    assert EvolutionaryAlgorithm.pareto_dominance(y2, y) == 1
-    assert EvolutionaryAlgorithm.pareto_dominance(y, y.copy()) == 0
-    assert EvolutionaryAlgorithm.pareto_dominance(np.array([1.0, 3.0]), np.array([2.0, 2.0])) == 9
+    assert DominanceBasedAlgorithm.check_pareto_dominance(y, y2) == -1
+    assert DominanceBasedAlgorithm.check_pareto_dominance(y2, y) == 1
+    assert DominanceBasedAlgorithm.check_pareto_dominance(y, y.copy()) == 0
+    assert DominanceBasedAlgorithm.check_pareto_dominance(
+        np.array([1.0, 3.0]), np.array([2.0, 2.0])) == 9
 
 
 def test_faster_non_dominated_ranking_and_select(problem):
@@ -64,9 +72,9 @@ def test_faster_non_dominated_ranking_and_select(problem):
         ],
     )
 
-    fronts = EvolutionaryAlgorithm.faster_non_dominated_ranking(db, is_valid_database=True)
-    EvolutionaryAlgorithm.assign_crowding_distance(db, fronts)
-    selected = EvolutionaryAlgorithm.select_population_indices(db, fronts, population_size=2)
+    fronts = DominanceBasedAlgorithm.non_dominated_ranking(db)
+    DominanceBasedAlgorithm.assign_crowding_distance(db)
+    selected = DominanceBasedAlgorithm.select_parent_indices(db, n_select=2)
 
     assert fronts[0] == [0]
     assert db.individuals[0].pareto_rank == 1
@@ -85,8 +93,9 @@ def test_assign_crowding_distance_boundary_is_inf(problem):
             _indi(problem, 0.9, 0.80, 4),
         ],
     )
-    fronts = [[0, 1, 2, 3]]
-    EvolutionaryAlgorithm.assign_crowding_distance(db, fronts)
+    DominanceBasedAlgorithm.non_dominated_ranking(db)
+    db._index_pareto_fronts = [[0, 1, 2, 3]]
+    DominanceBasedAlgorithm.assign_crowding_distance(db)
     assert np.isinf(db.individuals[0].crowding_distance)
     assert np.isinf(db.individuals[3].crowding_distance)
     assert db.individuals[1].crowding_distance >= 0.0
@@ -96,7 +105,7 @@ def test_assign_crowding_distance_boundary_is_inf(problem):
 def test_binary_tournament_selection_empty_pool_raises(problem):
     pool = Database(problem, database_type="valid")
     with pytest.raises(ValueError, match="empty"):
-        NSGAII.binary_tournament_selection(pool, n_select=2)
+        binary_tournament_selection(pool, n_select=2)
 
 
 def test_binary_tournament_selection_size(problem):
@@ -109,8 +118,7 @@ def test_binary_tournament_selection_size(problem):
         indi.crowding_distance = float(5 - i)
         inds.append(indi)
     _fill(pool, inds)
-    pool.sort_database(sort_type=0)
-    selected = NSGAII.binary_tournament_selection(pool, n_select=4)
+    selected = binary_tournament_selection(pool, n_select=4)
     assert len(selected) == 4
     assert all(isinstance(indi, Individual) for indi in selected)
 
@@ -120,9 +128,9 @@ def test_sbx_crossover_and_polynomial_mutation_bounds(problem):
     np.random.seed(42)
     p1 = np.array([0.2])
     p2 = np.array([0.8])
-    c1, c2 = NSGAII.sbx_crossover(p1, p2, problem, cross_rate=1.0, pow_sbx=20.0)
-    m1 = NSGAII.polynomial_mutation(c1, problem, mut_rate=1.0, pow_poly=20.0)
-    m2 = NSGAII.polynomial_mutation(c2, problem, mut_rate=1.0, pow_poly=20.0)
+    c1, c2 = sbx_crossover(p1, p2, problem, cross_rate=1.0, pow_sbx=20.0)
+    m1 = polynomial_mutation(c1, problem, mut_rate=1.0, pow_poly=20.0)
+    m2 = polynomial_mutation(c2, problem, mut_rate=1.0, pow_poly=20.0)
 
     assert c1.shape == (1,)
     assert c2.shape == (1,)
@@ -150,7 +158,8 @@ def test_generate_candidate_individuals_builds_offspring(problem):
     for i, x in enumerate([0.05, 0.35, 0.65, 0.92], start=1):
         db_valid.add_individual(_indi(problem, x, x * 0.5, i), check_duplication=False, print_warning_info=False)
 
-    EvolutionaryAlgorithm.rank_pareto(db_valid, is_valid_database=True)
+    db_valid._is_valid_database = True
+    DominanceBasedAlgorithm.rank_pareto(db_valid)
 
     db_candidate = Database(problem, database_type="population")
     NSGAII.generate_candidate_individuals(

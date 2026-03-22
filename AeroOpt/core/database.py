@@ -50,7 +50,12 @@ class Database(object):
         self.individuals : List[Individual] = []
         
         self._id_list : List[int] = [] # List of IDs in the order of individuals
+        self._index_pareto_fronts : List[List[int]] = [] # Pareto fronts of individual indices
+        
         self._sorted : bool = False
+        self._updated_crowding_distance : bool = False
+        self._updated_pareto_rank : bool = False
+        self._is_valid_database : bool = False
 
     #* Attributes
     
@@ -69,6 +74,26 @@ class Database(object):
         return self._sorted
     
     @property
+    def is_valid_database(self) -> bool:
+        '''
+        Whether the database only contains valid individuals.
+        '''
+        return self._is_valid_database
+    
+    @property
+    def updated_crowding_distance(self) -> bool:
+        '''
+        Whether the crowding distance is updated.
+        '''
+        return self._updated_crowding_distance
+    
+    @property
+    def updated_pareto_rank(self) -> bool:
+        '''
+        Whether the Pareto rank is updated.
+        '''
+        return self._updated_pareto_rank
+    
     def critical_scaled_distance(self) -> float:
         '''
         Critical scaled distance for checking duplication of individuals.
@@ -84,29 +109,52 @@ class Database(object):
         self.individuals = []
         self._id_list = []
         self._sorted = False
+        self._updated_crowding_distance = False
+        self._updated_pareto_rank = False
+        self._is_valid_database = False
     
-    def copy_from_database(self, other: 'Database', deepcopy: bool = True) -> None:
+    def copy_from_database(self, other: 'Database', 
+                        ID_list: List[int] = None, 
+                        index_list: List[int] = None,
+                        deepcopy: bool = True) -> None:
         '''
-        Copy the database from another database,
-        but the `database_type` is not changed.
+        Copy the database from another database:
+        
+        - If `ID_list` or `index_list` is provided, the specified individuals are copied.
+        - Otherwise, the entire database is copied.
+        - The `database_type` is not changed.
         
         Parameters:
         -----------
         other: Database
             Another database to copy from.
+        ID_list: List[int]
+            List of IDs of individuals to be selected. This has higher priority than `index_list`.
+        index_list: List[int]
+            List of index of individuals to be selected.
         deepcopy: bool
             If True, the individuals are copied.
         '''
         if other.problem is not self.problem:
             raise ValueError('Databases must share the same problem instance')
         
-        if deepcopy:
-            self.individuals = [copy.deepcopy(indi) for indi in other.individuals]
+        if ID_list is not None:
+            self.individuals = [other.individuals[other.get_index_from_ID(id_)] for id_ in ID_list]
+        
+        elif index_list is not None:
+            self.individuals = [other.individuals[idx] for idx in index_list]
+            
         else:
             self.individuals = other.individuals
+        
+        if deepcopy:
+            self.individuals = [copy.deepcopy(indi) for indi in self.individuals]
 
         self.update_id_list()
         self._sorted = other._sorted
+        self._updated_crowding_distance = other._updated_crowding_distance
+        self._updated_pareto_rank = other._updated_pareto_rank
+        self._is_valid_database = other._is_valid_database
     
     def update_id_list(self) -> None:
         '''
@@ -132,6 +180,14 @@ class Database(object):
         '''
         for indi in self.individuals:
             indi.sort_type = sort_type
+            
+        if sort_type == 0:
+            if not self.updated_pareto_rank or not self.updated_crowding_distance:
+                raise ValueError('Pareto rank and crowding distance must be updated before sorting (type=0)')
+        elif sort_type == 6:
+            if not self.updated_crowding_distance:
+                raise ValueError('Crowding distance must be updated before sorting (type=6)')
+            
         self.individuals.sort()
         self._sorted = True
         self.update_id_list()
@@ -166,10 +222,10 @@ class Database(object):
         
         Parameters:
         -----------
-        scale:      bool
+        scale: bool
             If True, return scaled input variables.
-        ID_list:    List[int]
-            List of IDs of individuals to be selected.
+        ID_list: List[int]
+            List of IDs of individuals to be selected. This has higher priority than `index_list`.
         index_list: List[int]
             List of index of individuals to be selected.
             
@@ -211,6 +267,22 @@ class Database(object):
                 index_list: List[int] = None) -> np.ndarray:
         '''
         Get output variables of individuals in the database.
+        
+        Parameters:
+        -----------
+        scale: bool
+            If True, return scaled output variables.
+        type_list: List[int]
+            List of types of output variables to be selected.
+        ID_list: List[int]
+            List of IDs of individuals to be selected. This has higher priority than `index_list`.
+        index_list: List[int]
+            List of index of individuals to be selected.
+            
+        Returns:
+        --------
+        ys: np.ndarray [n, n_output]
+            Output variables of individuals in the database.
         '''
         if self.size <= 0:
             return None
@@ -240,6 +312,40 @@ class Database(object):
         if not type_list is None:
             ys = self.problem.get_output_by_type(ys, type_list)
     
+        return ys
+    
+    def get_unified_objectives(self, scale: bool = False) -> np.ndarray:
+        '''
+        Return objective matrix with unified minimization direction.
+        
+        Parameters:
+        -----------
+        scale: bool
+            If True, return scaled objectives.
+            
+        Returns:
+        --------
+        ys: np.ndarray [nn, n_objective]
+            Objective matrix with unified minimization direction.
+        '''
+        if self.size <= 0:
+            return np.zeros((0, 0), dtype=float)
+
+        ys = np.zeros((self.size, self.problem.n_objective), dtype=float)
+        for i, indi in enumerate(self.individuals):
+            ys[i, :] = indi.objectives
+
+        if scale:
+            ys = self.problem.scale_y(ys)
+
+        i_obj = 0
+        for out_type in self.problem.problem_settings.output_type:
+            if abs(out_type) != 1:
+                continue
+            if out_type == -1:
+                ys[:, i_obj] = -ys[:, i_obj]
+            i_obj += 1
+        
         return ys
     
     #* Individual-level manipulation
@@ -290,11 +396,12 @@ class Database(object):
         min_dis = np.min(scaled_distance_matrix, axis=1) # [n]
         closest_index = np.argmin(scaled_distance_matrix, axis=1) # [n]
     
+        crit = self.critical_scaled_distance()
         if is_multiple:
             for i in range(n):
-                is_duplicated[i] = (min_dis[i] < self.critical_scaled_distance)
+                is_duplicated[i] = (min_dis[i] < crit)
         else:
-            if min_dis[0] < self.critical_scaled_distance:
+            if min_dis[0] < crit:
                 is_duplicated = True
             closest_index = closest_index[0]
 
@@ -368,6 +475,9 @@ class Database(object):
         self.individuals.append(indi)
         self._id_list.append(indi.ID)
         self._sorted = False
+        self._updated_crowding_distance = False
+        self._updated_pareto_rank = False
+        self._is_valid_database = False
             
         text = f'Added individual (ID={indi.ID:3d}, original ID={original_ID})'
         return True, text
@@ -403,6 +513,40 @@ class Database(object):
             raise Exception('ID or index not valid (size=%d)'%(self.size), ID, index)
         
         self._sorted = False
+        self._updated_crowding_distance = False
+    
+    def shrink_database(self, remaining_size: int, 
+                reserve_ratio: float = 0.3) -> None:
+        '''
+        Shrink database to `remaining_size` by deleting
+        worst individuals (based on Pareto rank and crowding distance).
+        
+        Parameters:
+        -----------
+        remaining_size: int
+            Remaining size to shrink to.
+        reserve_ratio: float
+            Reserve ratio for database shrinking, i.e.,
+            ratio of individuals that are directly kept.
+        '''
+        if self.size < remaining_size:
+            return
+
+        n_pop = self.size
+        n_direct = int(reserve_ratio * remaining_size)
+        if n_direct > 0:
+            ii_sub = np.random.choice(n_pop, size=n_direct, replace=False)
+            id_direct = [self.individuals[i].ID for i in ii_sub]
+        else:
+            id_direct = []
+
+        i = 1
+        while self.size > remaining_size:
+            _id = self.individuals[-i].ID
+            if _id in id_direct:
+                i += 1
+            else:
+                self.delete_individual(ID=_id)
     
     def eliminate_invalid_individuals(self) -> None:
         '''
@@ -436,6 +580,9 @@ class Database(object):
             
         self.update_id_list()
         self._sorted = False
+        self._updated_crowding_distance = False
+        self._updated_pareto_rank = False
+        self._is_valid_database = True
     
     #* Database-level manipulation
     
@@ -449,7 +596,7 @@ class Database(object):
         Parameters:
         -----------
         ID_list: List[int]
-            List of IDs of individuals to be selected.
+            List of IDs of individuals to be selected. This has higher priority than `index_list`.
         index_list: List[int]
             List of index of individuals to be selected.
         deepcopy: bool
@@ -475,7 +622,7 @@ class Database(object):
             sub_database.individuals = [copy.deepcopy(indi) for indi in sub_database.individuals]
         
         sub_database.update_id_list()
-        sub_database._sorted = False
+
         return sub_database
 
     def get_intersection_with_database(self,
@@ -517,7 +664,7 @@ class Database(object):
             intersection.individuals = [copy.deepcopy(indi) for indi in intersection.individuals]
         
         intersection.update_id_list()
-        intersection._sorted = False
+
         return intersection
 
     def merge_with_database(self,
@@ -560,6 +707,9 @@ class Database(object):
 
         self.update_id_list()
         self._sorted = False
+        self._updated_crowding_distance = False
+        self._updated_pareto_rank = False
+        self._is_valid_database = False
 
     def create_database_of_sub_problem(self,
                     sub_problem: Problem) -> 'Database':
@@ -608,9 +758,7 @@ class Database(object):
             
             sub_database.add_individual(indi, deepcopy=False, print_warning_info=False)
             
-        sub_database.update_id_list()
-        sub_database._sorted = False
-        
+        sub_database.update_id_list()        
         sub_database.evaluate_constraints()
         
         return sub_database
@@ -659,6 +807,9 @@ class Database(object):
         
         self._id_list = [indi.ID for indi in self.individuals]
         self._sorted = False
+        self._updated_crowding_distance = False
+        self._updated_pareto_rank = False
+        self._is_valid_database = False
     
     @staticmethod
     def _format_sheet_left_align_and_auto_width(ws) -> None:

@@ -1,5 +1,5 @@
 '''
-Example: demonstrate the NSGA-II algorithm.
+Example: demonstrate the DE (with Non-dominated sorting and crowding distance) algorithm.
 
 - Create a problem for benchmark functions:
   1) benchmark functions: ZDT1, ZDT2, ZDT3, ZDT4, ZDT6 (in `AeroOpt.utils.benchmark`)
@@ -7,9 +7,9 @@ Example: demonstrate the NSGA-II algorithm.
   3) xi in [0, 1]
   4) constraint1: x1^2 + x2^2 - 0.64 <= 0.0
 
-- Load NSGA-II algorithm settings (`SettingsNSGAII`).
+- Load DE algorithm settings (`SettingsDE`).
 
-- Create a NSGA-II optimization object `opt_nsgaii`:
+- Create a DE optimization object `opt_de`:
   1) use those algorithm settings for crossover/mutation
   2) use mp_evaluation for evaluation
   3) population size = 32
@@ -52,14 +52,47 @@ from examples_common import (
     PLOT_F1_LIM,
     PLOT_F2_LIM_BY_BENCHMARK,
     apply_benchmark_seeds,
+    de_rng_seed,
 )
 
 from AeroOpt.core import Problem, MultiProcessEvaluation, SettingsData, SettingsProblem
 
-from AeroOpt.optimization import (
-    OptNSGAII, SettingsOptimization, SettingsNSGAII,
-)
+from AeroOpt.optimization import SettingsOptimization, SettingsDE
+from AeroOpt.optimization.stochastic.de import DiffEvolution, OptDE as OptDEBase
 from AeroOpt.utils import benchmark as bench
+
+
+class OptDE(OptDEBase):
+    '''DE driver with a fixed NumPy ``Generator`` stream (library default is unseeded per call).'''
+
+    def __init__(
+            self,
+            problem: Problem,
+            optimization_settings: SettingsOptimization,
+            algorithm_settings: SettingsDE,
+            user_func: Callable = None,
+            mp_evaluation: MultiProcessEvaluation = None,
+            de_stream_seed: int = 0,
+            ):
+        super().__init__(
+            problem=problem,
+            optimization_settings=optimization_settings,
+            algorithm_settings=algorithm_settings,
+            user_func=user_func,
+            mp_evaluation=mp_evaluation,
+        )
+        self._de_rng = np.random.default_rng(int(de_stream_seed))
+
+    def generate_candidate_individuals(self) -> None:
+        DiffEvolution.generate_candidate_individuals(
+            db_valid=self.db_valid,
+            db_candidate=self.db_candidate,
+            population_size=self.population_size,
+            iteration=self.iteration,
+            scale_factor=self.algorithm_settings.scale_factor,
+            cross_prob=self.algorithm_settings.cross_prob,
+            rng=self._de_rng,
+        )
 
 BENCHMARKS: list[tuple[str, Callable[[np.ndarray], np.ndarray]]] = [
     ("ZDT1", bench.ZDT1),
@@ -76,9 +109,9 @@ def build_settings_file(
     name_inputs = [f"x{i}" for i in range(1, N_INPUT + 1)]
     f2_lo, f2_hi = PLOT_F2_LIM_BY_BENCHMARK[benchmark_name]
     settings = {
-        "zdt_nsgaii_data": {
+        "zdt_de_data": {
             "type": "SettingsData",
-            "name": "zdt_nsgaii_data",
+            "name": "zdt_de_data",
             "name_input": name_inputs,
             "input_low": [0.0] * N_INPUT,
             "input_upp": [1.0] * N_INPUT,
@@ -89,16 +122,16 @@ def build_settings_file(
             "output_precision": [0.0, 0.0],
             "critical_scaled_distance": 1.0e-8,
         },
-        "zdt_nsgaii_problem": {
+        "zdt_de_problem": {
             "type": "SettingsProblem",
-            "name": "zdt_nsgaii_problem",
-            "name_data_settings": "zdt_nsgaii_data",
+            "name": "zdt_de_problem",
+            "name_data_settings": "zdt_de_data",
             "output_type": [-1, -1],
             "constraint_strings": ["x1 ** 2 + x2 ** 2 - 0.64"],
         },
-        "zdt_nsgaii_opt": {
+        "zdt_de_opt": {
             "type": "SettingsOptimization",
-            "name": "zdt_nsgaii_opt",
+            "name": "zdt_de_opt",
             "resume": False,
             "population_size": POPULATION_SIZE,
             "max_iterations": MAX_ITERATIONS,
@@ -111,14 +144,11 @@ def build_settings_file(
             "info_level_on_screen": 1,
             "critical_potential_x": 0.2,
         },
-        "zdt_nsgaii_alg": {
-            "type": "SettingsNSGAII",
-            "name": "zdt_nsgaii_alg",
-            "cross_rate": 0.9,
-            "mut_rate": 0.9,
-            "pow_sbx": 20.0,
-            "pow_poly": 20.0,
-            "reserve_ratio": 0.3,
+        "zdt_de_alg": {
+            "type": "SettingsDE",
+            "name": "zdt_de_alg",
+            "scale_factor": 0.5,
+            "cross_prob": 0.9,
         },
     }
     with settings_path.open("w", encoding="utf-8") as f:
@@ -140,7 +170,7 @@ def is_plot_feasible(indi) -> bool:
     return float(indi.sum_violation) <= 0.0
 
 
-def plot_subplot(ax, opt: OptNSGAII, title: str, vmax_gen: int,
+def plot_subplot(ax, opt: OptDE, title: str, vmax_gen: int,
                 show_pareto_label: bool) -> None:
     cmap = plt.cm.viridis
     norm = plt.Normalize(vmin=0, vmax=max(vmax_gen, 1))
@@ -204,37 +234,38 @@ def run_one_benchmark(
     mp_eval: MultiProcessEvaluation,
     bench_index: int,
     benchmark_name: str,
-    ) -> OptNSGAII:
+    ) -> OptDE:
     work_dir.mkdir(parents=True, exist_ok=True)
     settings_path = work_dir / "settings.json"
     build_settings_file(settings_path, work_dir, benchmark_name)
 
-    data = SettingsData("zdt_nsgaii_data", fname_settings=str(settings_path))
+    data = SettingsData("zdt_de_data", fname_settings=str(settings_path))
     problem = Problem(
         data,
-        SettingsProblem("zdt_nsgaii_problem", data, fname_settings=str(settings_path)),
+        SettingsProblem("zdt_de_problem", data, fname_settings=str(settings_path)),
     )
-    opt_settings = SettingsOptimization("zdt_nsgaii_opt", fname_settings=str(settings_path))
+    opt_settings = SettingsOptimization("zdt_de_opt", fname_settings=str(settings_path))
     opt_settings.working_directory = str(work_dir)
 
-    alg_settings = SettingsNSGAII("zdt_nsgaii_alg", fname_settings=str(settings_path))
+    alg_settings = SettingsDE("zdt_de_alg", fname_settings=str(settings_path))
     user_func = functools.partial(_benchmark_user_func, bench_fn=bench_fn)
 
-    opt = OptNSGAII(
+    opt_de = OptDE(
         problem=problem,
         optimization_settings=opt_settings,
         algorithm_settings=alg_settings,
         user_func=user_func,
         mp_evaluation=mp_eval,
+        de_stream_seed=de_rng_seed(bench_index),
     )
     apply_benchmark_seeds(bench_index)
-    opt.main()
-    return opt
+    opt_de.main()
+    return opt_de
 
 
 def main() -> None:
     script_dir = Path(__file__).resolve().parent
-    run_root = script_dir / "_nsgaii_work"
+    run_root = script_dir / "_de_work"
     run_root.mkdir(parents=True, exist_ok=True)
 
     n_proc = os.cpu_count()
@@ -254,10 +285,10 @@ def main() -> None:
     )
 
     for i, (ax, (bname, bfn)) in enumerate(zip(axes, BENCHMARKS)):
-        print(f"NSGA-II example: running {bname} ...", flush=True)
+        print(f"DE example: running {bname} ...", flush=True)
         subdir = run_root / bname
-        opt = run_one_benchmark(bfn, subdir, mp_eval, bench_index=i, benchmark_name=bname)
-        plot_subplot(ax, opt, bname, MAX_ITERATIONS, show_pareto_label=True)
+        opt_de = run_one_benchmark(bfn, subdir, mp_eval, bench_index=i, benchmark_name=bname)
+        plot_subplot(ax, opt_de, bname, MAX_ITERATIONS, show_pareto_label=True)
         ax.set_xlim(PLOT_F1_LIM)
         ax.set_ylim(PLOT_F2_LIM_BY_BENCHMARK[bname])
 
@@ -270,7 +301,7 @@ def main() -> None:
     cbar.ax.yaxis.set_major_formatter(mticker.StrMethodFormatter("{x:.0f}"))
     cbar.set_label("generation")
 
-    out_png = script_dir / "nsgaii_zdt_subplots.png"
+    out_png = script_dir / "de_zdt_subplots.png"
     fig.savefig(out_png, dpi=150)
     plt.close(fig)
     print(f"Saved figure: {out_png}")

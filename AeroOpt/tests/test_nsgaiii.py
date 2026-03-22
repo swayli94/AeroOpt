@@ -8,8 +8,10 @@ import pytest
 from AeroOpt.core import Database, Individual, Problem, SettingsData, SettingsProblem
 from AeroOpt.optimization import (
     SettingsNSGAIII,
-    EvolutionaryAlgorithm,
+    SettingsOptimization,
+    DominanceBasedAlgorithm,
     NSGAIII,
+    OptNSGAIII,
 )
 
 
@@ -80,10 +82,33 @@ def test_settings_nsgaiii_reads_template(settings_path):
     assert s.n_partitions is None
 
 
-def test_nsgaiii_algorithm_str_repr(settings_path):
-    ea = NSGAIII("default", fname_settings=settings_path)
-    assert str(ea) == "NSGAIII"
-    assert repr(ea) == "NSGAIII"
+@pytest.fixture
+def optimization_settings(settings_path, tmp_path):
+    s = SettingsOptimization("default", fname_settings=settings_path)
+    s.population_size = 4
+    s.max_iterations = 2
+    s.working_directory = str(tmp_path)
+    return s
+
+
+def test_opt_nsgaiii_select_elite_from_valid(problem, optimization_settings, settings_path):
+    algo = SettingsNSGAIII("default", fname_settings=settings_path)
+    opt = OptNSGAIII(problem, optimization_settings, algo)
+    opt.db_valid = Database(problem, database_type="valid")
+    opt.db_valid.add_individual(
+        Individual(problem, x=np.array([0.2]), y=np.array([0.3]), ID=1),
+        check_duplication=False,
+        print_warning_info=False,
+    )
+    opt.db_valid.add_individual(
+        Individual(problem, x=np.array([0.4]), y=np.array([0.5]), ID=2),
+        check_duplication=False,
+        print_warning_info=False,
+    )
+    opt.db_valid._is_valid_database = True
+    opt.select_elite_from_valid()
+    assert opt.db_elite.size >= 1
+    assert all(indi.pareto_rank == 1 for indi in opt.db_elite.individuals)
 
 
 def test_suggest_n_partitions():
@@ -138,7 +163,8 @@ def test_generate_candidate_individuals_builds_offspring(problem):
             print_warning_info=False,
         )
 
-    EvolutionaryAlgorithm.rank_pareto(db_valid, is_valid_database=True)
+    db_valid._is_valid_database = True
+    DominanceBasedAlgorithm.rank_pareto(db_valid)
 
     db_candidate = Database(problem, database_type="population")
     NSGAIII.generate_candidate_individuals(
