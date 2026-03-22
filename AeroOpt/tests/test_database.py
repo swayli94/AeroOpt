@@ -41,7 +41,7 @@ def _append_direct(db: Database, indi: Individual):
 class TestDatabaseBasics:
     def test_add_and_id_list(self, database, problem):
         a = _indi(problem, 0.2, 0.2, ID=1)
-        assert database.add_individual(a) is True
+        assert database.add_individual(a)[0] is True
         assert database.size == 1
         assert database.get_ID_from_index(0) == 1
         assert database.get_index_from_ID(1) == 0
@@ -75,15 +75,15 @@ class TestDatabaseDuplication:
     def test_add_second_distinct_x_with_duplication_check_off(self, database, problem):
         assert database.add_individual(
             _indi(problem, 0.25, 0.25, ID=1), check_duplication=False
-        ) is True
+        )[0] is True
         assert database.add_individual(
             _indi(problem, 0.3, 0.3, ID=2), check_duplication=False
-        ) is True
+        )[0] is True
         assert database.size == 2
 
     def test_add_rejected_when_duplicate_and_check_on(self, database, problem):
         database.add_individual(_indi(problem, 0.4, 0.4, ID=1), check_duplication=False)
-        assert database.add_individual(_indi(problem, 0.4, 0.4, ID=2)) is False
+        assert database.add_individual(_indi(problem, 0.4, 0.4, ID=2))[0] is False
         assert database.size == 1
 
 

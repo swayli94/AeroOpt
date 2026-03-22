@@ -235,7 +235,7 @@ class NSGAII(EvolutionaryAlgorithm):
                 indi.source = "GA"
                 indi.generation = iteration
                 db_candidate.add_individual(indi, check_duplication=True,
-                                        check_bounds=True, deepcopy=False)
+                            check_bounds=True, deepcopy=False, print_warning_info=False)
 
 
 class OptNSGAII(OptEvolutionaryFramework):

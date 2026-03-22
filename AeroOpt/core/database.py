@@ -304,7 +304,8 @@ class Database(object):
                     check_duplication: bool = True,
                     check_bounds: bool = True,
                     deepcopy: bool = True,
-                    ) -> bool:
+                    print_warning_info: bool = True,
+                    ) -> Tuple[bool, str]:
         '''
         Add an individual to the database.
         
@@ -321,11 +322,15 @@ class Database(object):
             If True, check if the individual is out of bounds.
         deepcopy: bool
             If True, the individual is copied.
+        print_warning_info: bool
+            If True, print warning information of the individual.
         
         Returns:
         --------
         added: bool
             True if the individual is added, False otherwise.
+        warning_info: str
+            Warning information of the individual.
         '''
         # Check problem
         if indi.problem != self.problem:
@@ -334,9 +339,10 @@ class Database(object):
         # Check bounds
         if check_bounds:
             if not self.problem.check_bounds_x(indi.x):
-                print(f'>>> Failed to add individual: ID={indi.ID}')
-                print(f'    x out of bounds')
-                return False
+                text = f'Failed to add individual (ID={indi.ID}): x out of bounds'
+                if print_warning_info:
+                    print(f'>>> {text}')
+                return False, text
         
         if deepcopy:
             indi = copy.deepcopy(indi)
@@ -345,26 +351,26 @@ class Database(object):
         if self.size > 0:
             is_duplicated, closest_index = self.check_duplication(indi.x)
             if is_duplicated and check_duplication:
-                print(f'>>> Failed to add individual: ID={indi.ID}')
-                print(f'    duplicated with ID {closest_index} in database')
-                return False
+                text = f'Failed to add individual (ID={indi.ID}): duplicated with ID {closest_index} in database'
+                if print_warning_info:
+                    print(f'>>> {text}')
+                return False, text
         
         # Assign ID
         original_ID = indi.ID
         if original_ID is not None:
             if indi.ID in self._id_list:
                 indi.ID = self.get_largest_ID() + 1
-                print(f'>>> Assigned new ID {indi.ID} to individual: ID={original_ID}')
         else:
             indi.ID = self.get_largest_ID() + 1
-            print(f'>>> Assigned new ID {indi.ID} to individual: ID= None')
             
         # Add individual to database
         self.individuals.append(indi)
         self._id_list.append(indi.ID)
         self._sorted = False
             
-        return True
+        text = f'Added individual (ID={indi.ID:3d}, original ID={original_ID})'
+        return True, text
     
     def delete_individual(self, ID: int = None, index: int = -1) -> None:
         '''
@@ -516,7 +522,8 @@ class Database(object):
 
     def merge_with_database(self,
                         other: 'Database',
-                        deepcopy: bool = True) -> None:
+                        deepcopy: bool = True,
+                        log_func: Callable = None) -> None:
         '''
         Merge the database with another database.
         
@@ -530,6 +537,9 @@ class Database(object):
             Another database to merge with.
         deepcopy: bool
             If True, the individuals are copied.
+        log_func: Callable
+            Function to log the merge information.
+            If None, print warning information to screen.
         '''
         if other.problem is not self.problem:
             raise ValueError('Databases must share the same problem instance')
@@ -537,8 +547,16 @@ class Database(object):
         if other.size <= 0:
             return
 
+        if log_func is None:
+            print_warning_info = True
+        else:
+            print_warning_info = False
+
         for indi in other.individuals:
-            self.add_individual(indi, deepcopy=deepcopy)
+            added, warning_info = self.add_individual(indi, deepcopy=deepcopy,
+                                            print_warning_info=print_warning_info)
+            if not added and log_func is not None:
+                log_func(warning_info, level=2, prefix='  - ')
 
         self.update_id_list()
         self._sorted = False
@@ -588,7 +606,7 @@ class Database(object):
                 
             indi.eval_constraints()
             
-            sub_database.add_individual(indi, deepcopy=False)
+            sub_database.add_individual(indi, deepcopy=False, print_warning_info=False)
             
         sub_database.update_id_list()
         sub_database._sorted = False

@@ -148,7 +148,7 @@ def test_generate_candidate_individuals_builds_offspring(problem):
     np.random.seed(123)
     db_valid = Database(problem, database_type="valid")
     for i, x in enumerate([0.05, 0.35, 0.65, 0.92], start=1):
-        db_valid.add_individual(_indi(problem, x, x * 0.5, i), check_duplication=False)
+        db_valid.add_individual(_indi(problem, x, x * 0.5, i), check_duplication=False, print_warning_info=False)
 
     EvolutionaryAlgorithm.rank_pareto(db_valid, is_valid_database=True)
 

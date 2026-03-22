@@ -95,9 +95,12 @@ class OptBaseFramework(object):
                                variables_for_calculating_potential=None,
                                critical_potential=self.optimization_settings.critical_potential_x)
         
+        # Attributes
+        self._start_time = time.perf_counter()
+        
         init_log(self.dir_summary, self.fname_log)
         
-        self.log(f'Optimization [{self.name}] initialized.', level=0)
+        self.log(f'Optimization [{self.name}] initialized.', level=0, prefix='=== ')
         
     @property
     def population_size(self) -> int:
@@ -182,7 +185,7 @@ class OptBaseFramework(object):
             
             self.iteration += 1
             t0 = time.perf_counter()
-            self.log(f'Iteration {self.iteration} started.', level=1)
+            self.log(f'Iteration {self.iteration} started.', level=1, prefix='=== ')
             
             self.update_parameters()
             
@@ -202,6 +205,9 @@ class OptBaseFramework(object):
             
             t1 = time.perf_counter()
             self.log(f'Iteration {self.iteration} finished in {(t1-t0)/60.0:.2f} min.', level=1)
+            
+        time_elapsed = time.perf_counter() - self._start_time
+        self.log(f'Optimization [{self.name}] finished in {time_elapsed/60.0:.2f} min.', level=0, prefix='=== ')
     
     def resume(self) -> None:
         '''
@@ -266,8 +272,10 @@ class OptBaseFramework(object):
             indi = Individual(problem=self.problem, x=x)
             indi.source = "random"
             indi.generation = 0
-            self.db_candidate.add_individual(indi, check_duplication=True,
-                                            check_bounds=True, deepcopy=False)
+            added, warning_info = self.db_candidate.add_individual(indi, check_duplication=True,
+                                    check_bounds=True, deepcopy=False, print_warning_info=False)
+            if not added:
+                self.log(warning_info, level=2, prefix='  - ')
 
     #TODO: Can be adapted
     def termination(self) -> bool:
@@ -320,7 +328,8 @@ class OptBaseFramework(object):
         n_previous_total = self.db_total.size
         n_previous_valid = self.db_valid.size
         
-        self.db_total.merge_with_database(self.db_candidate, deepcopy=True)
+        self.db_total.merge_with_database(
+            self.db_candidate, deepcopy=True, log_func=self.log)
 
         self.db_valid.copy_from_database(self.db_total, deepcopy=True)
         self.db_valid.eliminate_invalid_individuals()
@@ -505,7 +514,9 @@ class PreProcess(object):
         db = Database(pre_processing_problem, database_type='total')
         for i in range(xs.shape[0]):
             indi = Individual(pre_processing_problem, x=xs[i], ID=i+1)
-            db.add_individual(indi)
+            added, warning_info = db.add_individual(indi, print_warning_info=False)
+            if not added:
+                self.opt.log(warning_info, level=2, prefix='  - ')
             
         db.evaluate_individuals(mp_evaluation=self.opt.mp_evaluation,
                                 user_func=user_pre_processing_func)

@@ -362,6 +362,7 @@ class EvolutionaryAlgorithm(object):
                 check_duplication=True,
                 check_bounds=True,
                 deepcopy=False, # individuals are already copied in temp
+                print_warning_info=False,
             )
 
     @staticmethod
@@ -383,7 +384,9 @@ class EvolutionaryAlgorithm(object):
             if pop.add_individual(indi, 
                     check_duplication=True, 
                     check_bounds=True,
-                    deepcopy=True):
+                    deepcopy=True,
+                    print_warning_info=False,
+                ):
                 n_added += 1
 
         remove_ids = []
