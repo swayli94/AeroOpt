@@ -4,16 +4,15 @@ Base framework for optimization.
 import os
 import numpy as np
 import time
-import copy
 
 from typing import List, Callable, Tuple
 
 from AeroOpt.core import (
     Problem, Individual, Database,
-    SettingsOptimization,
     MultiProcessEvaluation,
     init_log, log
 )
+from AeroOpt.optimization.settings import SettingsOptimization
 from AeroOpt.analysis.analyze_database import AnalyzeDatabase
 
 
@@ -43,13 +42,13 @@ class OptBaseFramework(object):
     post_process: PostProcess
         Post-processing of the `db_candidate` database after evaluation.
     db_total: Database
-        Total database, including all individuals.
+        Total database, containing all individuals.
     db_valid: Database
-        Valid database, including only valid individuals.
+        Valid database, containing all the feasible individuals.
     db_elite: Database
-        Elite database, including only elite individuals.
+        Elite database, only contains the elite individuals in the current iteration.
     db_candidate: Database
-        Population database, including only candidate individuals.
+        Population database, only contains the candidate individuals in the current iteration.
     analyze_total: AnalyzeDatabase
         Analysis of the total database to:
         (1) avoid having duplicated individuals in `db_candidate`;

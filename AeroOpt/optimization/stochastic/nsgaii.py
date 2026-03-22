@@ -8,14 +8,13 @@ from typing import List, Tuple, Callable
 import numpy as np
 
 from AeroOpt.core import (
-    Database, Problem, SettingsOptimization, MultiProcessEvaluation
+    Problem, Individual, Database,
+    MultiProcessEvaluation
 )
-from AeroOpt.core.individual import Individual
-from AeroOpt.core.settings import SettingsNSGAII
-from AeroOpt.optimization.base import PostProcess, PreProcess
 from AeroOpt.optimization.stochastic.base import (
     OptEvolutionaryFramework, EvolutionaryAlgorithm
 )
+from AeroOpt.optimization.settings import SettingsOptimization, SettingsNSGAII
 
 
 class NSGAII(EvolutionaryAlgorithm):
@@ -170,6 +169,28 @@ class NSGAII(EvolutionaryAlgorithm):
         return selected
 
     @staticmethod
+    def build_temporary_parent_database(
+            db_valid: Database, population_size: int) -> Database:
+        '''
+        Build a temporary parent pool of size at most `population_size` from the
+        valid archive (deep copy), using NSGA-II environmental selection
+        (ranks + crowding distance). Does not modify `db_valid`.
+        '''
+        if db_valid.size <= 0:
+            raise ValueError("Cannot build parent database from an empty valid archive.")
+
+        db_work = db_valid.get_sub_database(
+            index_list=list(range(db_valid.size)), deepcopy=True)
+        fronts = EvolutionaryAlgorithm.faster_non_dominated_ranking(
+            db_work, is_valid_database=True)
+        EvolutionaryAlgorithm.assign_crowding_distance(db_work, fronts)
+        if db_work.size <= population_size:
+            return db_work
+        idx = EvolutionaryAlgorithm.select_population_indices(
+            db_work, fronts, population_size)
+        return db_work.get_sub_database(index_list=idx, deepcopy=True)
+
+    @staticmethod
     def generate_candidate_individuals(
             db_valid: Database, db_candidate: Database,
             population_size: int, iteration: int,
@@ -177,6 +198,11 @@ class NSGAII(EvolutionaryAlgorithm):
             mut_rate: float = 1.0, pow_poly: float = 20.0) -> None:
         '''
         Generate candidate individuals from the valid database.
+
+        A temporary parent database (size `population_size`) is built from
+        `db_valid` via `build_temporary_parent_database`; tournament selection
+        and variation use only that pool. `db_valid` is not reinterpreted as
+        the parent generation.
         
         Parameters:
         -----------
@@ -205,9 +231,11 @@ class NSGAII(EvolutionaryAlgorithm):
         if db_valid.size <= 0:
             raise RuntimeError("No valid individuals available for NSGA-II evolution.")
 
+        temp_parents = NSGAII.build_temporary_parent_database(
+            db_valid, population_size)
         mating_population = NSGAII.binary_tournament_selection(
-            pool=db_valid, n_select=population_size)
-        
+            pool=temp_parents, n_select=population_size)
+
         db_candidate.empty_database()
 
         n_pairs = int(np.ceil(population_size / 2))
@@ -261,7 +289,7 @@ class OptNSGAII(OptEvolutionaryFramework):
     
     def generate_candidate_individuals(self) -> None:
         '''
-        Generate offspring from current valid population.
+        Generate offspring using a temporary parent pool truncated from `db_valid`.
         '''
         mute_rate = self.evolutionary_algorithm.settings.mut_rate / max(self.problem.n_input, 1)
         

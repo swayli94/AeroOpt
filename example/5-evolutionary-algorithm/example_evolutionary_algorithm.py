@@ -36,11 +36,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from AeroOpt.core.database import Database
-from AeroOpt.core.individual import Individual
-from AeroOpt.core.problem import Problem
-from AeroOpt.core.settings import SettingsData, SettingsOptimization, SettingsProblem
-from AeroOpt.optimization.stochastic.base import EvolutionaryAlgorithm
+from AeroOpt.core import (
+    Database, Individual, Problem, SettingsProblem, SettingsData
+)
+from AeroOpt.optimization import (
+    EvolutionaryAlgorithm, SettingsOptimization
+)
 
 
 def user_func(x: np.ndarray, **kwargs):

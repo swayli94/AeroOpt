@@ -7,7 +7,6 @@ from AeroOpt.core.database import Database
 from AeroOpt.core.settings import (
     SettingsData,
     SettingsProblem,
-    SettingsOptimization,
     CustomConstraintFunction,
 )
 from AeroOpt.core.utils import (
@@ -18,7 +17,6 @@ from AeroOpt.core.mpEvaluation import MultiProcessEvaluation
 __all__ = [
     'SettingsData',
     'SettingsProblem',
-    'SettingsOptimization',
     'CustomConstraintFunction',
     'Problem',
     'Individual',

@@ -4,10 +4,10 @@ import random
 import numpy as np
 import pytest
 
-from AeroOpt.core import Database, Individual, Problem, SettingsData, SettingsOptimization, SettingsProblem
-from AeroOpt.optimization.stochastic.base import EvolutionaryAlgorithm
-from AeroOpt.optimization.stochastic.nsgaii import NSGAII
-
+from AeroOpt.core import Database, Individual, Problem, SettingsData, SettingsProblem
+from AeroOpt.optimization import (
+    SettingsOptimization, EvolutionaryAlgorithm, NSGAII
+)
 
 @pytest.fixture(scope="module")
 def settings_path():

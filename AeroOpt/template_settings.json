@@ -42,5 +42,15 @@
         "pow_sbx": 20.0,
         "pow_poly": 20.0,
         "reserve_ratio": 0.3
+    },
+    "example_SettingsNSGAIII": {
+        "type": "SettingsNSGAIII",
+        "name": "default",
+        "cross_rate": 0.8,
+        "mut_rate": 0.8,
+        "pow_sbx": 20.0,
+        "pow_poly": 20.0,
+        "reserve_ratio": 0.3,
+        "n_partitions": null
     }
 }

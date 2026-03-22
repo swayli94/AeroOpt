@@ -3,8 +3,12 @@ import os
 import numpy as np
 import pytest
 
-from AeroOpt.core import Database, Individual, Problem, SettingsData, SettingsOptimization, SettingsProblem
-from AeroOpt.optimization.stochastic.base import EvolutionaryAlgorithm, OptEvolutionaryFramework
+from AeroOpt.core import (
+    Database, Individual, Problem, SettingsData, SettingsProblem
+)
+from AeroOpt.optimization import (
+    EvolutionaryAlgorithm, OptEvolutionaryFramework, SettingsOptimization
+)
 
 
 @pytest.fixture(scope="module")

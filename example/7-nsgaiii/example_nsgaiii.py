@@ -1,5 +1,5 @@
 '''
-Example: demonstrate the NSGA-II algorithm.
+Example: demonstrate the NSGA-III algorithm.
 
 - Create a problem for benchmark functions:
   1) benchmark functions: ZDT1, ZDT2, ZDT3, ZDT4, ZDT6 (in `AeroOpt.utils.benchmark`)
@@ -7,10 +7,10 @@ Example: demonstrate the NSGA-II algorithm.
   3) xi in [0, 1]
   4) constraint1: x1^2 + x2^2 - 0.64 <= 0.0
 
-- Create a NSGA-II algorithm object `nsgaii`.
+- Create a NSGA-III algorithm object `nsgaiii`.
 
-- Create a NSGA-II optimization object `opt_nsgaii`:
-  1) use `nsgaii` as the evolutionary algorithm
+- Create a NSGA-III optimization object `opt_nsgaiii`:
+  1) use `nsgaiii` as the evolutionary algorithm
   2) use mp_evaluation for evaluation
   3) population size = 32
   4) max_iterations = 20
@@ -44,7 +44,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from AeroOpt.core import Problem, MultiProcessEvaluation, SettingsData, SettingsProblem
 
 from AeroOpt.optimization import (
-    NSGAII, OptNSGAII, SettingsOptimization
+    NSGAIII, OptNSGAIII, SettingsOptimization
 )
 from AeroOpt.utils import benchmark as bench
 
@@ -64,9 +64,9 @@ BENCHMARKS: list[tuple[str, Callable[[np.ndarray], np.ndarray]]] = [
 def build_settings_file(settings_path: Path, work_dir: Path) -> None:
     name_inputs = [f"x{i}" for i in range(1, N_INPUT + 1)]
     settings = {
-        "zdt_nsgaii_data": {
+        "zdt_nsgaiii_data": {
             "type": "SettingsData",
-            "name": "zdt_nsgaii_data",
+            "name": "zdt_nsgaiii_data",
             "name_input": name_inputs,
             "input_low": [0.0] * N_INPUT,
             "input_upp": [1.0] * N_INPUT,
@@ -77,16 +77,16 @@ def build_settings_file(settings_path: Path, work_dir: Path) -> None:
             "output_precision": [0.0, 0.0],
             "critical_scaled_distance": 1.0e-8,
         },
-        "zdt_nsgaii_problem": {
+        "zdt_nsgaiii_problem": {
             "type": "SettingsProblem",
-            "name": "zdt_nsgaii_problem",
-            "name_data_settings": "zdt_nsgaii_data",
+            "name": "zdt_nsgaiii_problem",
+            "name_data_settings": "zdt_nsgaiii_data",
             "output_type": [-1, -1],
             "constraint_strings": ["x1 ** 2 + x2 ** 2 - 0.64"],
         },
-        "zdt_nsgaii_opt": {
+        "zdt_nsgaiii_opt": {
             "type": "SettingsOptimization",
-            "name": "zdt_nsgaii_opt",
+            "name": "zdt_nsgaiii_opt",
             "resume": False,
             "population_size": POPULATION_SIZE,
             "max_iterations": MAX_ITERATIONS,
@@ -99,14 +99,15 @@ def build_settings_file(settings_path: Path, work_dir: Path) -> None:
             "info_level_on_screen": 1,
             "critical_potential_x": 0.2,
         },
-        "zdt_nsgaii_alg": {
-            "type": "SettingsNSGAII",
-            "name": "zdt_nsgaii_alg",
+        "zdt_nsgaiii_alg": {
+            "type": "SettingsNSGAIII",
+            "name": "zdt_nsgaiii_alg",
             "cross_rate": 0.9,
             "mut_rate": 0.9,
             "pow_sbx": 20.0,
             "pow_poly": 20.0,
             "reserve_ratio": 0.3,
+            "n_partitions": None,
         },
     }
     with settings_path.open("w", encoding="utf-8") as f:
@@ -128,7 +129,7 @@ def is_plot_feasible(indi) -> bool:
     return float(indi.sum_violation) <= 0.0
 
 
-def plot_subplot(ax, opt: OptNSGAII, title: str, vmax_gen: int,
+def plot_subplot(ax, opt: OptNSGAIII, title: str, vmax_gen: int,
                 show_pareto_label: bool) -> None:
     cmap = plt.cm.viridis
     norm = plt.Normalize(vmin=0, vmax=max(vmax_gen, 1))
@@ -190,26 +191,26 @@ def run_one_benchmark(
     bench_fn: Callable[[np.ndarray], np.ndarray],
     work_dir: Path,
     mp_eval: MultiProcessEvaluation,
-    ) -> OptNSGAII:
+    ) -> OptNSGAIII:
     work_dir.mkdir(parents=True, exist_ok=True)
     settings_path = work_dir / "settings.json"
     build_settings_file(settings_path, work_dir)
 
-    data = SettingsData("zdt_nsgaii_data", fname_settings=str(settings_path))
+    data = SettingsData("zdt_nsgaiii_data", fname_settings=str(settings_path))
     problem = Problem(
         data,
-        SettingsProblem("zdt_nsgaii_problem", data, fname_settings=str(settings_path)),
+        SettingsProblem("zdt_nsgaiii_problem", data, fname_settings=str(settings_path)),
     )
-    opt_settings = SettingsOptimization("zdt_nsgaii_opt", fname_settings=str(settings_path))
+    opt_settings = SettingsOptimization("zdt_nsgaiii_opt", fname_settings=str(settings_path))
     opt_settings.working_directory = str(work_dir)
 
-    nsgaii = NSGAII(settings_name="zdt_nsgaii_alg", fname_settings=str(settings_path))
+    nsgaiii = NSGAIII(settings_name="zdt_nsgaiii_alg", fname_settings=str(settings_path))
     user_func = functools.partial(_benchmark_user_func, bench_fn=bench_fn)
 
-    opt = OptNSGAII(
+    opt = OptNSGAIII(
         problem=problem,
         optimization_settings=opt_settings,
-        evolutionary_algorithm=nsgaii,
+        evolutionary_algorithm=nsgaiii,
         user_func=user_func,
         mp_evaluation=mp_eval,
     )
@@ -219,7 +220,7 @@ def run_one_benchmark(
 
 def main() -> None:
     script_dir = Path(__file__).resolve().parent
-    run_root = script_dir / "_nsgaii_work"
+    run_root = script_dir / "_nsgaiii_work"
     run_root.mkdir(parents=True, exist_ok=True)
 
     n_proc = os.cpu_count()
@@ -239,7 +240,7 @@ def main() -> None:
     )
 
     for i, (ax, (bname, bfn)) in enumerate(zip(axes, BENCHMARKS)):
-        print(f"NSGA-II example: running {bname} ...", flush=True)
+        print(f"NSGA-III example: running {bname} ...", flush=True)
         subdir = run_root / bname
         opt = run_one_benchmark(bfn, subdir, mp_eval)
         plot_subplot(ax, opt, bname, MAX_ITERATIONS, show_pareto_label=True)
@@ -253,7 +254,7 @@ def main() -> None:
     cbar.ax.yaxis.set_major_formatter(mticker.StrMethodFormatter("{x:.0f}"))
     cbar.set_label("generation")
 
-    out_png = script_dir / "nsgaii_zdt_subplots.png"
+    out_png = script_dir / "nsgaiii_zdt_subplots.png"
     fig.savefig(out_png, dpi=150)
     plt.close(fig)
     print(f"Saved figure: {out_png}")

@@ -2,11 +2,16 @@ import os
 import numpy as np
 import pytest
 
-from AeroOpt.core import Database, Individual, Problem, SettingsData, SettingsOptimization, SettingsProblem
-from AeroOpt.optimization.base import OptBaseFramework, PreProcess
+from AeroOpt.core import Database, Individual, Problem, SettingsData, SettingsProblem
+from AeroOpt.optimization import (
+    OptBaseFramework, SettingsOptimization, PreProcess
+)
 
 
 class _DummyOpt(OptBaseFramework):
+    '''
+    Dummy optimization framework for testing.
+    '''
     def initialize_population(self) -> None:
         self.iteration = 1
 
@@ -102,7 +107,7 @@ def test_evaluate_db_candidate_and_merge_total(problem, optimization_settings, m
         self.individuals.append(indi)
         self.update_id_list()
         self._sorted = False
-        return True
+        return True, ""
 
     monkeypatch.setattr(Database, "add_individual", _patched_add_individual)
     opt.evaluate_db_candidate()
@@ -199,7 +204,7 @@ def test_preprocess_check_feasibility_sets_calculation_folder(monkeypatch):
         self.individuals.append(indi)
         self.update_id_list()
         self._sorted = False
-        return True
+        return True, ""
 
     monkeypatch.setattr(Database, "add_individual", _fake_add_individual)
     monkeypatch.setattr(Database, "evaluate_individuals", _fake_evaluate)

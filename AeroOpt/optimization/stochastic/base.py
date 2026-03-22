@@ -6,9 +6,9 @@ from typing import List, Callable
 import numpy as np
 
 from AeroOpt.core import (
-    Database, Problem, Individual,
-    SettingsOptimization, MultiProcessEvaluation
+    Database, Problem, MultiProcessEvaluation
 )
+from AeroOpt.optimization.settings import SettingsOptimization
 from AeroOpt.optimization.base import OptBaseFramework
 
 
