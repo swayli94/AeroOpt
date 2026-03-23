@@ -4,9 +4,9 @@
 import os
 import pytest
 
-# 项目根目录 (AeroOpt 包所在目录)
+# 项目根目录，模板配置位于 AeroOpt/template_settings.json
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEMPLATE_SETTINGS_PATH = os.path.join(_ROOT, "template_settings.json")
+TEMPLATE_SETTINGS_PATH = os.path.join(_ROOT, "AeroOpt", "template_settings.json")
 
 
 # core 中 Individual 使用 SettingsData.source_dict 与 Individual.source_dict，

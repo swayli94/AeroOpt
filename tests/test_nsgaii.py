@@ -19,7 +19,7 @@ from AeroOpt.optimization.utils import (
 @pytest.fixture(scope="module")
 def settings_path():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(root, "template_settings.json")
+    return os.path.join(root, "AeroOpt", "template_settings.json")
 
 
 @pytest.fixture

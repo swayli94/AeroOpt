@@ -5,19 +5,18 @@ import pytest
 
 from AeroOpt.core import Database, Individual, Problem, SettingsData, SettingsProblem
 from AeroOpt.optimization import (
-    DiffEvolution,
     DominanceBasedAlgorithm,
-    OptDE,
-    SettingsDE,
+    NRBO,
+    OptNRBO,
+    SettingsNRBO,
     SettingsOptimization,
 )
-from AeroOpt.optimization.utils import sample_de_rand_1_indices
 
 
 @pytest.fixture(scope="module")
 def settings_path():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(root, "template_settings.json")
+    return os.path.join(root, "AeroOpt", "template_settings.json")
 
 
 @pytest.fixture
@@ -31,7 +30,7 @@ def problem(settings_path):
 def optimization_settings(settings_path, tmp_path):
     s = SettingsOptimization("default", fname_settings=settings_path)
     s.population_size = 4
-    s.max_iterations = 2
+    s.max_iterations = 5
     s.working_directory = str(tmp_path)
     return s
 
@@ -42,28 +41,28 @@ def _indi(problem: Problem, x: float, y: float, ID: int) -> Individual:
     return indi
 
 
-def test_sample_de_rand_1_indices_single_population():
-    rng = np.random.default_rng(0)
-    assert sample_de_rand_1_indices(rng, n_pop=1, i_target=0) == (0, 0, 0)
+def test_settings_nrbo_reads_template(settings_path):
+    s = SettingsNRBO("default", fname_settings=settings_path)
+    assert s.name == "default"
+    assert s.deciding_factor == pytest.approx(0.6)
 
 
 def test_generate_candidate_individuals_requires_valid_population(problem):
     db_valid = Database(problem, database_type="valid")
     db_candidate = Database(problem, database_type="population")
     with pytest.raises(RuntimeError, match="No valid individuals"):
-        DiffEvolution.generate_candidate_individuals(
-            db_valid,
-            db_candidate,
+        NRBO.generate_candidate_individuals(
+            db_valid=db_valid,
+            db_candidate=db_candidate,
             population_size=4,
             iteration=1,
-            scale_factor=0.5,
-            cross_prob=0.9,
+            max_iterations=10,
+            deciding_factor=0.6,
             rng=np.random.default_rng(1),
         )
 
 
-def test_generate_candidate_individuals_builds_trials(problem):
-    rng = np.random.default_rng(42)
+def test_generate_candidate_individuals_builds_offspring(problem):
     db_valid = Database(problem, database_type="valid")
     for i, x in enumerate([0.05, 0.35, 0.65, 0.92], start=1):
         db_valid.add_individual(
@@ -75,25 +74,27 @@ def test_generate_candidate_individuals_builds_trials(problem):
     DominanceBasedAlgorithm.rank_pareto(db_valid)
 
     db_candidate = Database(problem, database_type="population")
-    DiffEvolution.generate_candidate_individuals(
-        db_valid,
-        db_candidate,
+    NRBO.generate_candidate_individuals(
+        db_valid=db_valid,
+        db_candidate=db_candidate,
         population_size=4,
-        iteration=3,
-        scale_factor=0.5,
-        cross_prob=0.9,
-        rng=rng,
+        iteration=2,
+        max_iterations=20,
+        deciding_factor=0.6,
+        rng=np.random.default_rng(42),
     )
-    assert db_candidate.size == 4
+
+    assert db_candidate.size > 0
+    assert db_candidate.size <= 4
     for indi in db_candidate.individuals:
-        assert indi.source == "DE"
-        assert indi.generation == 3
+        assert indi.source == "NRBO"
+        assert indi.generation == 2
         assert problem.check_bounds_x(indi.x)
 
 
-def test_opt_de_select_elite(problem, optimization_settings, settings_path):
-    algo = SettingsDE("default", fname_settings=settings_path)
-    opt = OptDE(
+def test_opt_nrbo_select_elite(problem, optimization_settings, settings_path):
+    algo = SettingsNRBO("default", fname_settings=settings_path)
+    opt = OptNRBO(
         problem=problem,
         optimization_settings=optimization_settings,
         algorithm_settings=algo,
@@ -107,3 +108,4 @@ def test_opt_de_select_elite(problem, optimization_settings, settings_path):
     opt.db_valid._is_valid_database = True
     opt.select_elite_from_valid()
     assert opt.db_elite.size >= 1
+

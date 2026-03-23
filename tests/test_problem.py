@@ -13,7 +13,7 @@ from AeroOpt.core.problem import Problem
 @pytest.fixture(scope="module")
 def settings_path():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    path = os.path.join(root, "template_settings.json")
+    path = os.path.join(root, "AeroOpt", "template_settings.json")
     assert os.path.exists(path), f"template_settings.json not found at {path}"
     return path
 
@@ -43,7 +43,7 @@ class TestProblemBasics:
         p2 = Problem(sd, sp)
         assert problem == p2
         sp2 = SettingsProblem("default", sd, fname_settings=os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "template_settings.json"))
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "AeroOpt", "template_settings.json"))
         p3 = Problem(sd, sp2)
         assert problem == p3
 

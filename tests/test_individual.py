@@ -13,7 +13,7 @@ from AeroOpt.core.individual import Individual
 @pytest.fixture(scope="module")
 def settings_path():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    path = os.path.join(root, "template_settings.json")
+    path = os.path.join(root, "AeroOpt", "template_settings.json")
     assert os.path.exists(path), f"template_settings.json not found at {path}"
     return path
 
