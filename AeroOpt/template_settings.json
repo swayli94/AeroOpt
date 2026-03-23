@@ -53,10 +53,40 @@
         "reserve_ratio": 0.3,
         "n_partitions": null
     },
+    "example_SettingsRVEA": {
+        "type": "SettingsRVEA",
+        "name": "default",
+        "cross_rate": 0.8,
+        "mut_rate": 0.8,
+        "pow_sbx": 20.0,
+        "pow_poly": 20.0,
+        "reserve_ratio": 0.3,
+        "n_partitions": null,
+        "alpha": 2.0,
+        "adapt_freq": 0.1
+    },
+    "example_SettingsMOEAD": {
+        "type": "SettingsMOEAD",
+        "name": "default",
+        "cross_rate": 0.8,
+        "mut_rate": 0.8,
+        "pow_sbx": 20.0,
+        "pow_poly": 20.0,
+        "n_partitions": null,
+        "n_neighbors": 20,
+        "prob_neighbor_mating": 0.9,
+        "decomposition": "auto",
+        "pbi_theta": 5.0
+    },
     "example_SettingsDE": {
         "type": "SettingsDE",
         "name": "default",
         "scale_factor": 0.5,
         "cross_prob": 0.9
+    },
+    "example_SettingsNRBO": {
+        "type": "SettingsNRBO",
+        "name": "default",
+        "deciding_factor": 0.6
     }
 }

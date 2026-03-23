@@ -2,7 +2,6 @@
 Utility functions for optimization.
 '''
 
-import random
 from typing import List, Tuple
 
 import numpy as np
@@ -13,6 +12,7 @@ from AeroOpt.core import Database, Individual, Problem
 def sbx_crossover(
         x1: np.ndarray, x2: np.ndarray, problem: Problem,
         cross_rate: float = 1.0, pow_sbx: float = 20.0,
+        rng: np.random.Generator = None,
         ) -> Tuple[np.ndarray, np.ndarray]:
     '''
     Simulated Binary Crossover (SBX) operator.
@@ -21,9 +21,12 @@ def sbx_crossover(
     "Simulated binary crossover for continuous search space."
     Complex systems 9.2 (1995): 115-148.
     '''
+    if rng is None:
+        rng = np.random.default_rng()
+
     child1 = x1.copy()
     child2 = x2.copy()
-    if random.random() > cross_rate:
+    if rng.random() > cross_rate:
         return child1, child2
 
     low = problem.data_settings.input_low
@@ -31,13 +34,13 @@ def sbx_crossover(
     precision = problem.data_settings.input_precision
 
     for i in range(problem.n_input):
-        if random.random() > 0.5:
+        if rng.random() > 0.5:
             continue
         if abs(x1[i] - x2[i]) <= precision[i]:
             continue
 
         y1, y2 = (x1[i], x2[i]) if x1[i] < x2[i] else (x2[i], x1[i])
-        rand = random.random()
+        rand = rng.random()
 
         beta = 1.0 + (2.0 * (y1 - low[i]) / (y2 - y1))
         alpha = 2.0 - beta ** (-(pow_sbx + 1.0))
@@ -57,7 +60,7 @@ def sbx_crossover(
 
         c1 = min(max(c1, low[i]), upp[i])
         c2 = min(max(c2, low[i]), upp[i])
-        if random.random() <= 0.5:
+        if rng.random() <= 0.5:
             child1[i], child2[i] = c2, c1
         else:
             child1[i], child2[i] = c1, c2
@@ -101,16 +104,20 @@ def binomial_crossover(x_target: np.ndarray, x_mutant: np.ndarray,
 def polynomial_mutation(
         x: np.ndarray, problem: Problem,
         mut_rate: float = 1.0, pow_poly: float = 20.0,
+        rng: np.random.Generator = None,
         ) -> np.ndarray:
     '''
     Polynomial mutation.
     '''
+    if rng is None:
+        rng = np.random.default_rng()
+
     out = x.copy()
     low = problem.data_settings.input_low
     upp = problem.data_settings.input_upp
 
     for i in range(problem.n_input):
-        if random.random() > mut_rate:
+        if rng.random() > mut_rate:
             continue
 
         span = upp[i] - low[i]
@@ -119,7 +126,7 @@ def polynomial_mutation(
 
         delta1 = (out[i] - low[i]) / span
         delta2 = (upp[i] - out[i]) / span
-        rnd = random.random()
+        rnd = rng.random()
         mut_pow = 1.0 / (pow_poly + 1.0)
 
         if rnd <= 0.5:
@@ -139,7 +146,8 @@ def polynomial_mutation(
 
 
 def binary_tournament_selection(
-        pool: Database, n_select: int) -> List[Individual]:
+        pool: Database, n_select: int,
+        rng: np.random.Generator = None) -> List[Individual]:
     '''
     Binary tournament selection from a sorted population.
 
@@ -158,9 +166,16 @@ def binary_tournament_selection(
     if pool.size <= 0:
         raise ValueError("Selection pool is empty.")
 
+    if rng is None:
+        rng = np.random.default_rng()
+
     selected: List[Individual] = []
     for _ in range(n_select):
-        i, j = random.sample(range(pool.size), 2) if pool.size > 1 else (0, 0)
+        if pool.size > 1:
+            pair = rng.choice(pool.size, size=2, replace=False)
+            i, j = int(pair[0]), int(pair[1])
+        else:
+            i, j = 0, 0
         a = pool.individuals[i]
         b = pool.individuals[j]
 
@@ -169,7 +184,7 @@ def binary_tournament_selection(
         elif b < a:
             selected.append(b)
         else:
-            selected.append(a if random.random() < 0.5 else b)
+            selected.append(a if rng.random() < 0.5 else b)
 
     return selected
 

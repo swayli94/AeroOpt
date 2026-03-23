@@ -40,15 +40,19 @@ class NSGAII(object):
             pow_sbx: float = 20.0,
             mut_rate: float = 1.0,
             pow_poly: float = 20.0,
+            rng: np.random.Generator = None,
             ) -> None:
         if db_valid.size <= 0:
             raise RuntimeError(
                 "No valid individuals available for NSGA-II evolution.")
 
+        if rng is None:
+            rng = np.random.default_rng()
+
         temp_parents = NSGAII.build_temporary_parent_database(
             db_valid, population_size)
         mating_population = binary_tournament_selection(
-            pool=temp_parents, n_select=population_size)
+            pool=temp_parents, n_select=population_size, rng=rng)
 
         db_candidate.empty_database()
         n_pairs = int(np.ceil(population_size / 2))
@@ -61,14 +65,14 @@ class NSGAII(object):
 
             x1, x2 = sbx_crossover(
                 p1.x, p2.x, problem=db_candidate.problem,
-                cross_rate=cross_rate, pow_sbx=pow_sbx)
+                cross_rate=cross_rate, pow_sbx=pow_sbx, rng=rng)
 
             x1 = polynomial_mutation(
                 x1, problem=db_candidate.problem,
-                mut_rate=mut_rate, pow_poly=pow_poly)
+                mut_rate=mut_rate, pow_poly=pow_poly, rng=rng)
             x2 = polynomial_mutation(
                 x2, problem=db_candidate.problem,
-                mut_rate=mut_rate, pow_poly=pow_poly)
+                mut_rate=mut_rate, pow_poly=pow_poly, rng=rng)
 
             for x_child in (x1, x2):
                 if db_candidate.size >= population_size:
@@ -84,13 +88,31 @@ class NSGAII(object):
 class OptNSGAII(OptBaseFramework):
     '''
     NSGA-II optimization.
+    
+    Parameters:
+    -----------
+    problem: Problem
+        Problem for optimization.
+    optimization_settings: SettingsOptimization
+        Settings of the optimization.
+    algorithm_settings: SettingsNSGAII
+        NSGA-II-specific settings.
+    user_func: Callable
+        User-defined function to evaluate the individuals.
+        If None, use external evaluation script.
+    mp_evaluation: MultiProcessEvaluation
+        Multi-process evaluation object defined in the entrance of the entire program.
+        If None, use serial evaluation.
+    rng: np.random.Generator
+        Optional NumPy random generator.
     '''
     def __init__(self,
         problem: Problem,
         optimization_settings: SettingsOptimization,
         algorithm_settings: SettingsNSGAII,
         user_func: Callable = None,
-        mp_evaluation: MultiProcessEvaluation = None
+        mp_evaluation: MultiProcessEvaluation = None,
+        rng: np.random.Generator = None,
         ):
         
         super().__init__(
@@ -100,6 +122,7 @@ class OptNSGAII(OptBaseFramework):
             mp_evaluation=mp_evaluation)
     
         self.algorithm_settings = algorithm_settings
+        self.rng = rng
     
     #* Main procedures
     
@@ -122,6 +145,7 @@ class OptNSGAII(OptBaseFramework):
             pow_sbx=self.algorithm_settings.pow_sbx,
             mut_rate=mut_rate,
             pow_poly=self.algorithm_settings.pow_poly,
+            rng=self.rng,
         )
  
     def select_elite_from_valid(self) -> None:

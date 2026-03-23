@@ -84,6 +84,23 @@ class DiffEvolution(object):
 class OptDE(OptBaseFramework):
     '''
     Optimization driver using differential evolution for offspring generation.
+    
+    Parameters:
+    -----------
+    problem: Problem
+        Problem for optimization.
+    optimization_settings: SettingsOptimization
+        Settings of the optimization.
+    algorithm_settings: SettingsDE
+        Differential evolution-specific settings.
+    user_func: Callable
+        User-defined function to evaluate the individuals.
+        If None, use external evaluation script.
+    mp_evaluation: MultiProcessEvaluation
+        Multi-process evaluation object defined in the entrance of the entire program.
+        If None, use serial evaluation.
+    rng: np.random.Generator
+        Optional NumPy random generator.
     '''
 
     def __init__(
@@ -93,6 +110,7 @@ class OptDE(OptBaseFramework):
             algorithm_settings: SettingsDE,
             user_func: Callable = None,
             mp_evaluation: MultiProcessEvaluation = None,
+            rng: np.random.Generator = None,
             ):
         super().__init__(
             problem=problem,
@@ -101,6 +119,7 @@ class OptDE(OptBaseFramework):
             mp_evaluation=mp_evaluation,
         )
         self.algorithm_settings = algorithm_settings
+        self.rng = rng
 
     def generate_candidate_individuals(self) -> None:
         '''
@@ -113,6 +132,7 @@ class OptDE(OptBaseFramework):
             iteration=self.iteration,
             scale_factor=self.algorithm_settings.scale_factor,
             cross_prob=self.algorithm_settings.cross_prob,
+            rng=self.rng,
         )
         
     def select_elite_from_valid(self) -> None:

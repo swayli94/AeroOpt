@@ -1,18 +1,18 @@
 '''
-Example: demonstrate the DE (with Non-dominated sorting and crowding distance) algorithm.
+Example: demonstrate MOEA/D (multiobjective evolutionary algorithm based on decomposition).
 
 - Create a problem for benchmark functions:
   1) benchmark functions: ZDT1, ZDT2, ZDT3, ZDT4, ZDT6 (in `AeroOpt.utils.benchmark`)
   2) n_input = 3, n_output = 2, n_constraint = 1
   3) xi in [0, 1]
-  4) constraint1: x1^2 + x2^2 - 0.64 <= 0.0
+  4) constraint1: x1^2 + x2^2 - 0.64 <= 0.0（与 DE / RVEA 等示例相同）
 
-- Load DE algorithm settings (`SettingsDE`).
+- Load MOEA/D algorithm settings (`SettingsMOEAD`).
 
-- Create a DE optimization object `opt_de`:
-  1) use those algorithm settings for crossover/mutation
+- Create a MOEA/D optimization object `opt_moead`:
+  1) use those algorithm settings for SBX/PM and neighborhood parameters
   2) use mp_evaluation for evaluation
-  3) population size = 32
+  3) population size = ``examples_common.POPULATION_SIZE``（与 DE 等示例相同；须等于 Das–Dennis 权重个数）
   4) max_iterations = 20
 
 - Start optimization:
@@ -52,14 +52,35 @@ from examples_common import (
     PLOT_F1_LIM,
     PLOT_F2_LIM_BY_BENCHMARK,
     apply_benchmark_seeds,
-    de_rng_seed,
+    moead_rng_seed,
 )
 
 from AeroOpt.core import Problem, MultiProcessEvaluation, SettingsData, SettingsProblem
 
-from AeroOpt.optimization import SettingsOptimization, SettingsDE
-from AeroOpt.optimization.stochastic.de import OptDE
+from AeroOpt.optimization import SettingsOptimization, SettingsMOEAD, OptMOEAD as OptMOEADBase
 from AeroOpt.utils import benchmark as bench
+
+
+class OptMOEAD(OptMOEADBase):
+    '''MOEA/D driver with a fixed NumPy ``Generator`` (library default is unseeded).'''
+
+    def __init__(
+            self,
+            problem: Problem,
+            optimization_settings: SettingsOptimization,
+            algorithm_settings: SettingsMOEAD,
+            user_func: Callable = None,
+            mp_evaluation: MultiProcessEvaluation = None,
+            moead_stream_seed: int = 0,
+            ):
+        super().__init__(
+            problem=problem,
+            optimization_settings=optimization_settings,
+            algorithm_settings=algorithm_settings,
+            user_func=user_func,
+            mp_evaluation=mp_evaluation,
+        )
+        self._rng = np.random.default_rng(int(moead_stream_seed))
 
 
 BENCHMARKS: list[tuple[str, Callable[[np.ndarray], np.ndarray]]] = [
@@ -77,9 +98,9 @@ def build_settings_file(
     name_inputs = [f"x{i}" for i in range(1, N_INPUT + 1)]
     f2_lo, f2_hi = PLOT_F2_LIM_BY_BENCHMARK[benchmark_name]
     settings = {
-        "zdt_de_data": {
+        "zdt_moead_data": {
             "type": "SettingsData",
-            "name": "zdt_de_data",
+            "name": "zdt_moead_data",
             "name_input": name_inputs,
             "input_low": [0.0] * N_INPUT,
             "input_upp": [1.0] * N_INPUT,
@@ -90,16 +111,16 @@ def build_settings_file(
             "output_precision": [0.0, 0.0],
             "critical_scaled_distance": 1.0e-8,
         },
-        "zdt_de_problem": {
+        "zdt_moead_problem": {
             "type": "SettingsProblem",
-            "name": "zdt_de_problem",
-            "name_data_settings": "zdt_de_data",
+            "name": "zdt_moead_problem",
+            "name_data_settings": "zdt_moead_data",
             "output_type": [-1, -1],
             "constraint_strings": ["x1 ** 2 + x2 ** 2 - 0.64"],
         },
-        "zdt_de_opt": {
+        "zdt_moead_opt": {
             "type": "SettingsOptimization",
-            "name": "zdt_de_opt",
+            "name": "zdt_moead_opt",
             "resume": False,
             "population_size": POPULATION_SIZE,
             "max_iterations": MAX_ITERATIONS,
@@ -112,11 +133,18 @@ def build_settings_file(
             "info_level_on_screen": 1,
             "critical_potential_x": 0.2,
         },
-        "zdt_de_alg": {
-            "type": "SettingsDE",
-            "name": "zdt_de_alg",
-            "scale_factor": 0.5,
-            "cross_prob": 0.9,
+        "zdt_moead_alg": {
+            "type": "SettingsMOEAD",
+            "name": "zdt_moead_alg",
+            "cross_rate": 0.9,
+            "mut_rate": 0.9,
+            "pow_sbx": 20.0,
+            "pow_poly": 20.0,
+            "n_partitions": None,
+            "n_neighbors": 20,
+            "prob_neighbor_mating": 0.9,
+            "decomposition": "auto",
+            "pbi_theta": 5.0,
         },
     }
     with settings_path.open("w", encoding="utf-8") as f:
@@ -138,7 +166,7 @@ def is_plot_feasible(indi) -> bool:
     return float(indi.sum_violation) <= 0.0
 
 
-def plot_subplot(ax, opt: OptDE, title: str, vmax_gen: int,
+def plot_subplot(ax, opt: OptMOEAD, title: str, vmax_gen: int,
                 show_pareto_label: bool) -> None:
     cmap = plt.cm.viridis
     norm = plt.Normalize(vmin=0, vmax=max(vmax_gen, 1))
@@ -202,38 +230,38 @@ def run_one_benchmark(
     mp_eval: MultiProcessEvaluation,
     bench_index: int,
     benchmark_name: str,
-    ) -> OptDE:
+    ) -> OptMOEAD:
     work_dir.mkdir(parents=True, exist_ok=True)
     settings_path = work_dir / "settings.json"
     build_settings_file(settings_path, work_dir, benchmark_name)
 
-    data = SettingsData("zdt_de_data", fname_settings=str(settings_path))
+    data = SettingsData("zdt_moead_data", fname_settings=str(settings_path))
     problem = Problem(
         data,
-        SettingsProblem("zdt_de_problem", data, fname_settings=str(settings_path)),
+        SettingsProblem("zdt_moead_problem", data, fname_settings=str(settings_path)),
     )
-    opt_settings = SettingsOptimization("zdt_de_opt", fname_settings=str(settings_path))
+    opt_settings = SettingsOptimization("zdt_moead_opt", fname_settings=str(settings_path))
     opt_settings.working_directory = str(work_dir)
 
-    alg_settings = SettingsDE("zdt_de_alg", fname_settings=str(settings_path))
+    alg_settings = SettingsMOEAD("zdt_moead_alg", fname_settings=str(settings_path))
     user_func = functools.partial(_benchmark_user_func, bench_fn=bench_fn)
 
-    opt_de = OptDE(
+    opt_moead = OptMOEAD(
         problem=problem,
         optimization_settings=opt_settings,
         algorithm_settings=alg_settings,
         user_func=user_func,
         mp_evaluation=mp_eval,
-        rng=np.random.default_rng(int(de_rng_seed(bench_index)))
+        moead_stream_seed=moead_rng_seed(bench_index),
     )
     apply_benchmark_seeds(bench_index)
-    opt_de.main()
-    return opt_de
+    opt_moead.main()
+    return opt_moead
 
 
 def main() -> None:
     script_dir = Path(__file__).resolve().parent
-    run_root = script_dir / "_de_work"
+    run_root = script_dir / "_moead_work"
     run_root.mkdir(parents=True, exist_ok=True)
 
     n_proc = os.cpu_count()
@@ -253,10 +281,10 @@ def main() -> None:
     )
 
     for i, (ax, (bname, bfn)) in enumerate(zip(axes, BENCHMARKS)):
-        print(f"DE example: running {bname} ...", flush=True)
+        print(f"MOEA/D example: running {bname} ...", flush=True)
         subdir = run_root / bname
-        opt_de = run_one_benchmark(bfn, subdir, mp_eval, bench_index=i, benchmark_name=bname)
-        plot_subplot(ax, opt_de, bname, MAX_ITERATIONS, show_pareto_label=True)
+        opt_moead = run_one_benchmark(bfn, subdir, mp_eval, bench_index=i, benchmark_name=bname)
+        plot_subplot(ax, opt_moead, bname, MAX_ITERATIONS, show_pareto_label=True)
         ax.set_xlim(PLOT_F1_LIM)
         ax.set_ylim(PLOT_F2_LIM_BY_BENCHMARK[bname])
 
@@ -269,7 +297,7 @@ def main() -> None:
     cbar.ax.yaxis.set_major_formatter(mticker.StrMethodFormatter("{x:.0f}"))
     cbar.set_label("generation")
 
-    out_png = script_dir / "de_zdt_subplots.png"
+    out_png = script_dir / "moead_zdt_subplots.png"
     fig.savefig(out_png, dpi=150)
     plt.close(fig)
     print(f"Saved figure: {out_png}")

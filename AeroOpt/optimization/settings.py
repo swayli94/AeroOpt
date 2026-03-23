@@ -169,6 +169,48 @@ class SettingsDE(object):
         return None
 
 
+class SettingsNRBO(object):
+    '''
+    Settings of NRBO (Newton-Raphson-based optimizer).
+
+    Parameters:
+    -----------
+    name: str
+        Name of the NRBO settings block in the JSON file.
+    fname_settings: str
+        Path to the settings file. Default is ``settings.json``.
+    '''
+    def __init__(self, name: str,
+            fname_settings: str = 'settings.json'):
+
+        self.name = name
+        self.deciding_factor: float = 0.6
+
+        self.read_settings(fname_settings)
+
+    def read_settings(self, fname_settings: str) -> None:
+        '''
+        Read settings from json file.
+        '''
+        if not os.path.exists(fname_settings):
+            raise FileNotFoundError(f'Settings file {fname_settings} not found.')
+
+        with open(fname_settings, 'r', encoding='utf-8') as f:
+            settings = json.load(f)
+
+        settings_entry = None
+        for entry_name, entry_data in settings.items():
+            if entry_data['type'] == 'SettingsNRBO' and entry_data['name'] == self.name:
+                print(f'>>> SettingsNRBO {self.name} ({entry_name}) read successfully.')
+                settings_entry = entry_data
+
+        if settings_entry is None:
+            raise ValueError(f'SettingsNRBO {self.name} not found in {fname_settings}.')
+
+        self.deciding_factor = float(settings_entry.get('deciding_factor', 0.6))
+        return None
+
+
 class SettingsNSGAIII(object):
     '''
     Settings of NSGA-III algorithm (same GA operators as NSGA-II, plus reference points).
@@ -227,6 +269,136 @@ class SettingsNSGAIII(object):
         self.reserve_ratio = float(settings_entry['reserve_ratio'])
         npart = settings_entry.get('n_partitions', None)
         self.n_partitions = int(npart) if npart is not None else None
+
+        return None
+
+
+class SettingsRVEA(object):
+    '''
+    Settings of RVEA (reference-vector guided evolution with APD survival).
+
+    Same GA operators as NSGA-III; extra parameters follow pymoo RVEA:
+    `alpha` (APD penalty) and `adapt_freq` (reference-vector adaptation).
+
+    `n_partitions` selects the Das-Dennis grid; if omitted, a default is
+    inferred from `population_size` (see `NSGAIII.suggest_n_partitions`).
+    '''
+    def __init__(self, name: str,
+            fname_settings: str = 'settings.json'):
+
+        self.name = name
+
+        self.cross_rate: float = 1.0
+        self.mut_rate: float = 1.0
+        self.pow_sbx: float = 20.0
+        self.pow_poly: float = 20.0
+        self.reserve_ratio: float = 0.3
+        self.n_partitions: int = None
+        self.alpha: float = 2.0
+        self.adapt_freq: float = 0.1
+
+        self.read_settings(fname_settings)
+
+    def read_settings(self, fname_settings: str) -> None:
+        '''
+        Read settings from json file.
+        '''
+        if not os.path.exists(fname_settings):
+            raise FileNotFoundError(f'Settings file {fname_settings} not found.')
+
+        with open(fname_settings, 'r', encoding='utf-8') as f:
+            settings = json.load(f)
+
+        settings_entry = None
+        for entry_name, entry_data in settings.items():
+            if entry_data['type'] == 'SettingsRVEA' and entry_data['name'] == self.name:
+                print(f'>>> SettingsRVEA {self.name} ({entry_name}) read successfully.')
+                settings_entry = entry_data
+
+        if settings_entry is None:
+            raise ValueError(f'SettingsRVEA {self.name} not found in {fname_settings}.')
+
+        self.cross_rate = float(settings_entry['cross_rate'])
+        self.mut_rate = float(settings_entry['mut_rate'])
+        self.pow_sbx = float(settings_entry['pow_sbx'])
+        self.pow_poly = float(settings_entry['pow_poly'])
+        self.reserve_ratio = float(settings_entry['reserve_ratio'])
+        npart = settings_entry.get('n_partitions', None)
+        self.n_partitions = int(npart) if npart is not None else None
+        self.alpha = float(settings_entry.get('alpha', 2.0))
+        self.adapt_freq = float(settings_entry.get('adapt_freq', 0.1))
+
+        return None
+
+
+class SettingsMOEAD(object):
+    '''
+    Settings of MOEA/D (multiobjective evolutionary algorithm based on decomposition).
+
+    Uses the same SBX/PM operators as NSGA-III. Reference weights are Das–Dennis
+    points on the objective simplex; ``population_size`` in ``SettingsOptimization``
+    must equal the number of those points for the chosen ``n_partitions``
+    (see ``NSGAIII.suggest_n_partitions`` / combinatorial count).
+
+    If the valid archive has fewer feasible individuals than weights after the
+    initial evaluation, ``OptMOEAD`` still initializes by reusing feasible
+    solutions in round-robin order (multiple subproblems may share the same
+    individual until neighborhood replacement diversifies the slots).
+
+    Parameters:
+    -----------
+    name: str
+        Name of the MOEA/D settings block in the JSON file.
+    fname_settings: str
+        Path to the settings file. Default is ``settings.json``.
+    '''
+    def __init__(self, name: str,
+            fname_settings: str = 'settings.json'):
+
+        self.name = name
+
+        self.cross_rate: float = 1.0
+        self.mut_rate: float = 1.0
+        self.pow_sbx: float = 20.0
+        self.pow_poly: float = 20.0
+        self.n_partitions: int = None
+        self.n_neighbors: int = 20
+        self.prob_neighbor_mating: float = 0.9
+        self.decomposition: str = 'auto'
+        self.pbi_theta: float = 5.0
+
+        self.read_settings(fname_settings)
+
+    def read_settings(self, fname_settings: str) -> None:
+        '''
+        Read settings from json file.
+        '''
+        if not os.path.exists(fname_settings):
+            raise FileNotFoundError(f'Settings file {fname_settings} not found.')
+
+        with open(fname_settings, 'r', encoding='utf-8') as f:
+            settings = json.load(f)
+
+        settings_entry = None
+        for entry_name, entry_data in settings.items():
+            if entry_data['type'] == 'SettingsMOEAD' and entry_data['name'] == self.name:
+                print(f'>>> SettingsMOEAD {self.name} ({entry_name}) read successfully.')
+                settings_entry = entry_data
+
+        if settings_entry is None:
+            raise ValueError(f'SettingsMOEAD {self.name} not found in {fname_settings}.')
+
+        self.cross_rate = float(settings_entry['cross_rate'])
+        self.mut_rate = float(settings_entry['mut_rate'])
+        self.pow_sbx = float(settings_entry['pow_sbx'])
+        self.pow_poly = float(settings_entry['pow_poly'])
+        npart = settings_entry.get('n_partitions', None)
+        self.n_partitions = int(npart) if npart is not None else None
+        self.n_neighbors = int(settings_entry.get('n_neighbors', 20))
+        self.prob_neighbor_mating = float(
+            settings_entry.get('prob_neighbor_mating', 0.9))
+        self.decomposition = str(settings_entry.get('decomposition', 'auto'))
+        self.pbi_theta = float(settings_entry.get('pbi_theta', 5.0))
 
         return None
 

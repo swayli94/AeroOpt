@@ -1,5 +1,5 @@
 '''
-Shared settings for ZDT multi-objective examples (NSGA-II, NSGA-III, DE).
+Shared settings for ZDT multi-objective examples (NSGA-II, NSGA-III, RVEA, DE, MOEA/D).
 
 Ensures identical initial populations (via synchronized NumPy seed before
 `initialize_population`), aligned random streams for GA operators, and
@@ -46,3 +46,8 @@ def apply_benchmark_seeds(bench_index: int) -> None:
 def de_rng_seed(bench_index: int) -> int:
     '''Deterministic seed for DE/rand/1/bin (independent of post-init NumPy state).'''
     return MASTER_SEED + bench_index * 1_000_000 + 50_000_001
+
+
+def moead_rng_seed(bench_index: int) -> int:
+    '''Deterministic seed for MOEA/D mating / neighborhood sampling.'''
+    return MASTER_SEED + bench_index * 1_000_000 + 60_000_001
