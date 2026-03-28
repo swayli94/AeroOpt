@@ -172,7 +172,7 @@ def plot_decision_and_objective_space(
     base_dir: Path,
     db: Database,
     fronts: list[list[int]],
-) -> Path:
+    ) -> Path:
     xs = db.get_xs()
     ys = get_objectives_matrix(db)
     ranks = collect_ranks(db)
@@ -243,7 +243,7 @@ def plot_crowding_and_selection(
     db: Database,
     fronts: list[list[int]],
     selected_idx: list[int],
-) -> Path:
+    ) -> Path:
     ys = get_objectives_matrix(db)
     cd = collect_crowding(db)
     ranks = collect_ranks(db)
@@ -311,7 +311,7 @@ def plot_rank_pareto_sort_and_shrink(
     base_dir: Path,
     db_before_shrink: Database,
     db_after_shrink: Database,
-) -> Path:
+    ) -> Path:
     ys_b = get_objectives_matrix(db_before_shrink)
     ys_a = get_objectives_matrix(db_after_shrink)
     ranks_b = collect_ranks(db_before_shrink)
@@ -361,7 +361,7 @@ def plot_rank_pareto_sort_and_shrink(
 
 def main() -> None:
     base_dir = Path(__file__).resolve().parent
-    settings_path = base_dir / "settings_evolutionary_example.json"
+    settings_path = base_dir / "settings_dominance_based_algorithm.json"
     build_minimal_settings_file(settings_path=settings_path, work_dir=base_dir)
 
     data_settings = SettingsData(name="demo_data_ea", fname_settings=str(settings_path))
