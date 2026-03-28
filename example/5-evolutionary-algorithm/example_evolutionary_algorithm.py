@@ -156,8 +156,8 @@ def demo_pareto_dominance_print(problem: Problem) -> None:
     ]
     print("\n[pareto_dominance] unified objective vectors (min y1 -> negate y1; max y2 -> keep y2):")
     for ya, yb, note in pairs:
-        ua = _db_from_y_row(problem, ya).get_unified_objectives(scale=False)[0, :]
-        ub = _db_from_y_row(problem, yb).get_unified_objectives(scale=False)[0, :]
+        ua = _db_from_y_row(problem, ya).get_unified_objectives(scale=True)[0, :]
+        ub = _db_from_y_row(problem, yb).get_unified_objectives(scale=True)[0, :]
         flag = DominanceBasedAlgorithm.check_pareto_dominance(ua, ub)
         print(f"  u_a={ua} vs u_b={ub}  -> {flag}  ({note})")
 

@@ -7,10 +7,112 @@ Class for multi-objective evolutionary algorithms.
 - Approximation-guided algorithms, e.g., AGE-MOEA, etc.
 '''
 
+import math
 import copy
-from typing import List
+from abc import ABC, abstractmethod
+from typing import Any, List
 import numpy as np
 from AeroOpt.core import Database
+
+
+class Algorithm(ABC):
+    '''
+    Base class for optimization algorithms.
+    
+    This class provides:
+    - Selection of elite individuals from the valid database (optional).
+    - Building a temporary parent database (optional).
+    - Generation of candidate individuals as child generation (mandatory).
+
+    '''
+    @staticmethod
+    def build_temporary_parent_database(
+            db_valid: Database,
+            population_size: int,
+            **kwargs: Any,
+            ) -> Database:
+        '''
+        Optional hook for building a temporary parent pool from the valid database.
+        The `da_valid` is deep copied.
+        
+        Parameters:
+        -----------
+        db_valid: Database
+            Valid database.
+        population_size: int
+            Size of the parent pool.
+        **kwargs: Any
+            Additional keyword arguments.
+            
+        Returns:
+        --------
+        db_parent: Database
+            Temporary parent pool.
+        '''
+        ...
+    
+    @staticmethod
+    def environmental_selection_indices(
+            db: Database,
+            population_size: int,
+            **kwargs: Any,
+            ) -> List[int]:
+        '''
+        Optional hook for environmental selection on a merged pool.
+        Get indices of individuals to keep (length <= `population_size`).
+        
+        Parameters:
+        -----------
+        db: Database
+            Database to select from.
+        population_size: int
+            Size of the parent pool.
+        **kwargs: Any
+            Additional keyword arguments.
+            
+        Returns:
+        --------
+        index_selected: List[int]
+            Indices of selected individuals, length at most `population_size`.
+        '''
+        ...
+
+    @staticmethod
+    @abstractmethod
+    def generate_candidate_individuals(
+            db_valid: Database,
+            db_candidate: Database,
+            population_size: int,
+            iteration: int,
+            **kwargs: Any,
+            ) -> None:
+        '''
+        Generate candidate individuals during the optimization,
+        which are stored in `db_candidate` database before evaluation.
+        The `db_candidate` database is generated from `db_valid` database:
+        
+        - update `db_candidate` in place.
+        - create a temporary parent database by selection from `db_valid`
+        - evolution (crossover, mutation, etc.) of the parent database
+        
+        Parameters:
+        -----------
+        db_valid: Database
+            Valid database.
+        db_candidate: Database
+            Candidate database.
+        population_size: int
+            Size of the parent pool.
+        iteration: int
+            Current iteration.
+        **kwargs: Any
+            Additional keyword arguments.
+            
+        Returns:
+        --------
+        None
+        '''
+        ...
 
 
 class DominanceBasedAlgorithm(object):
@@ -18,26 +120,17 @@ class DominanceBasedAlgorithm(object):
     Dominance-based (Pareto-based) multi-objective evolutionary algorithms,
     e.g., NSGA-II, NSGA-III, NSDE, SPEA2, GDE3, etc.
 
-    This class refactors the common logic from legacy `Evolution`:
-    - Pareto non-dominated ranking
-    - Crowding-distance assignment
-    - Elite extraction and best-individual transfer
-    - Population shrinking with reserve-ratio protection
+    This class provides:
+    - Pareto non-dominated ranking.
+    - Crowding-distance assignment.
+    - Selection of parent pool.
+    - Selection of elite individuals from the valid database.
     '''
-    def __init__(self):
-        pass
-
     @staticmethod
     def check_pareto_dominance(y: np.ndarray, y_other: np.ndarray) -> int:
         '''
-        Pareto dominance on already direction-unified objective vectors,
-        adapted from `Problem.check_pareto_dominance`.
+        Pareto dominance on already direction-unified objective vectors.
 
-        Parameters:
-        -----------
-        y, y_other: np.ndarray [n_output]
-            direction-unified objective vectors.
-            
         Note:
         ------
         - equal: objs are equal
@@ -309,4 +402,49 @@ class DominanceBasedAlgorithm(object):
                                 deepcopy=True)
         db_elite.sort_database(sort_type=1)
     
-    
+
+class DecompositionBasedAlgorithm(object):
+    '''
+    Decomposition-based multi-objective evolutionary algorithms,
+    e.g., MOEA/D, RVEA, etc.
+    '''
+    @staticmethod
+    def suggest_n_partitions(n_objective: int, population_size: int) -> int:
+        '''
+        Pick a simplex partition count so the number of reference points is near
+        `population_size` (combinatorial count C(p+M-1, M-1)).
+        '''
+        if n_objective <= 1:
+            return 1
+        best_p, best_d = 1, float('inf')
+        pop = max(1, int(population_size))
+        # Upper search bound: bi-objective needs p ≈ pop-1; many-objective uses smaller p.
+        hi = max(41, pop + 25)
+        for p in range(1, hi):
+            n_ref = math.comb(p + n_objective - 1, n_objective - 1)
+            d = abs(n_ref - pop)
+            if d < best_d:
+                best_d, best_p = d, p
+        return max(1, best_p)
+
+    @staticmethod
+    def das_dennis_reference_points(n_objective: int, n_partitions: int) -> np.ndarray:
+        '''
+        Das-Dennis reference points on the (n_objective-1)-simplex, shape [n_ref, n_objective].
+        '''
+        if n_objective <= 0:
+            return np.zeros((0, 0))
+        if n_objective == 1:
+            return np.ones((1, 1))
+        n_partitions = max(1, int(n_partitions))
+        out: List[List[int]] = []
+
+        def rec(left: int, m: int, prefix: List[int]) -> None:
+            if m == 0:
+                out.append(prefix + [left])
+                return
+            for i in range(left + 1):
+                rec(left - i, m - 1, prefix + [i])
+
+        rec(n_partitions, n_objective - 1, [])
+        return np.asarray(out, dtype=float) / float(n_partitions)

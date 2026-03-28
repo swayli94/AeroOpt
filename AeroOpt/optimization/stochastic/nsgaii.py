@@ -10,7 +10,7 @@ from AeroOpt.core import (
     Problem, Individual, Database,
     MultiProcessEvaluation
 )
-from AeroOpt.optimization.moea import DominanceBasedAlgorithm
+from AeroOpt.optimization.moea import Algorithm, DominanceBasedAlgorithm
 from AeroOpt.optimization.base import OptBaseFramework
 from AeroOpt.optimization.settings import SettingsOptimization, SettingsNSGAII
 from AeroOpt.optimization.utils import (
@@ -20,7 +20,7 @@ from AeroOpt.optimization.utils import (
 )
 
 
-class NSGAII(object):
+class NSGAII(Algorithm):
     '''
     NSGA-II operators.
     '''

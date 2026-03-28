@@ -34,7 +34,11 @@ from AeroOpt.core import (
     MultiProcessEvaluation,
 )
 
-from AeroOpt.optimization.moea import DominanceBasedAlgorithm
+from AeroOpt.optimization.moea import (
+    Algorithm,
+    DominanceBasedAlgorithm,
+    DecompositionBasedAlgorithm,
+)
 from AeroOpt.optimization.utils import (
     binary_tournament_selection,
     polynomial_mutation,
@@ -60,36 +64,72 @@ class RVEAApdState(object):
         self.ref_dirs_base = ref_dirs
         self.ideal = np.full(n_dim, np.inf, dtype=float)
         self.nadir: Optional[np.ndarray] = None
-        self.V = RVEA._calc_V(self.ref_dirs_base)
-        self.gamma = RVEA._calc_gamma(self.V)
+        self.V = self._calc_unit_ref_dirs(self.ref_dirs_base)
+        self.gamma = self._calc_reference_gamma(self.V)
 
     def adapt(self) -> None:
         if self.nadir is None:
             return
         span = self.nadir - self.ideal
         span = np.maximum(span, 1.0e-64)
-        self.V = RVEA._calc_v_adapted(self.ref_dirs_base, span)
-        self.gamma = RVEA._calc_gamma(self.V)
-
-
-class RVEA(object):
-    '''
-    RVEA operators (APD environmental selection, Das–Dennis reference directions).
-    '''
+        self.V = self._calc_adapted_unit_ref_dirs(
+            self.ref_dirs_base, span)
+        self.gamma = self._calc_reference_gamma(self.V)
 
     @staticmethod
-    def _calc_V(ref_dirs: np.ndarray) -> np.ndarray:
+    def _calc_unit_ref_dirs(ref_dirs: np.ndarray) -> np.ndarray:
+        '''
+        Normalize reference directions row-wise to unit vectors.
+        '''
         ref_dirs = np.asarray(ref_dirs, dtype=float)
         norms = np.linalg.norm(ref_dirs, axis=1, keepdims=True)
         norms = np.maximum(norms, 1.0e-64)
         return ref_dirs / norms
 
     @staticmethod
-    def _calc_v_adapted(ref_dirs: np.ndarray, span: np.ndarray) -> np.ndarray:
-        return RVEA._calc_V(RVEA._calc_V(ref_dirs) * span)
+    def _calc_adapted_unit_ref_dirs(ref_dirs: np.ndarray, span: np.ndarray) -> np.ndarray:
+        '''
+        Adapt reference directions to the scale of the objective space and normalize them.
+
+        This function first normalizes the input reference directions to unit vectors,
+        then rescales each dimension according to the provided `span` (typically the
+        range of each objective), and finally normalizes the resulting vectors again.
+
+        The purpose is to adjust the reference directions so that they are consistent
+        with the anisotropic scaling of the objective space, preventing objectives with
+        larger numerical ranges from dominating the decomposition.
+        
+        The nadir point is the vector composed of the worst (maximum, for minimization problems)
+        objective values among all solutions on the Pareto front.
+
+        Parameters
+        ----------
+        ref_dirs : np.ndarray [n_subproblems, n_objectives]
+            Array of reference directions (weight vectors).
+        span : np.ndarray [n_objective]
+            Scaling factor for each objective (e.g., the difference between nadir and
+            ideal points). Used to adapt the reference directions to the actual
+            objective space.
+
+        Returns
+        -------
+        adapted_ref_dirs: np.ndarray [n_subproblems, n_objectives]
+            Adapted reference directions, normalized to unit vectors after scaling.
+        '''
+        ref_dirs = np.asarray(ref_dirs, dtype=float)
+        span = np.asarray(span, dtype=float)
+        norms = np.linalg.norm(ref_dirs, axis=1, keepdims=True)
+        norms = np.maximum(norms, 1.0e-64)
+        ref_dirs = ref_dirs / norms * span[None, :]
+        norms = np.linalg.norm(ref_dirs, axis=1, keepdims=True)
+        norms = np.maximum(norms, 1.0e-64)
+        return ref_dirs / norms
 
     @staticmethod
-    def _calc_gamma(V: np.ndarray) -> np.ndarray:
+    def _calc_reference_gamma(V: np.ndarray) -> np.ndarray:
+        '''
+        Compute minimal inter-vector angle (except self) for each reference vector.
+        '''
         V = np.asarray(V, dtype=float)
         n = V.shape[0]
         if n <= 1:
@@ -102,6 +142,12 @@ class RVEA(object):
         gamma = np.arccos(second_cos)
         return np.maximum(gamma, 1.0e-64)
 
+
+class RVEA(Algorithm):
+    '''
+    RVEA operators (APD environmental selection, Das-Dennis reference directions).
+    '''
+
     @staticmethod
     def environmental_selection_indices(
             db: Database,
@@ -109,11 +155,34 @@ class RVEA(object):
             state: RVEAApdState,
             iteration: int,
             max_iterations: int,
-            alpha: float,
+            alpha: float = 2.0,
             ) -> List[int]:
         '''
         Select up to one survivor per reference direction via APD (pymoo APDSurvival).
         Returns local indices into `db.individuals`.
+        
+        Parameters
+        ----------
+        db: Database
+            Database to select from.
+        population_size: int
+            Population size.
+        state: RVEAApdState
+            State of the RVEA algorithm.
+        iteration: int
+            Current iteration.
+        max_iterations: int
+            Maximum number of iterations.
+        alpha: float
+            APD penalty parameter amplifies the progress (0 to 1) of the algorithm.
+            In the early stages of the algorithm, the penalty is small, allowing for more convergence.
+            In the later stages of the algorithm, the penalty is large, allowing for more diversity.
+            Therefore, a larger `alpha` value will lead to more convergence.
+            
+        Returns
+        -------
+        indices: List[int]
+            Indices of the selected individuals.
         '''
         if db.size <= 0:
             return []
@@ -128,11 +197,10 @@ class RVEA(object):
         if db.size <= population_size:
             return list(range(db.size))
 
-        idx_all = list(range(db.size))
-        F = NSGAIII._unified_objectives_matrix(db, idx_all)
+        ys = db.get_unified_objectives(scale=True)
 
-        state.ideal = np.minimum(F.min(axis=0), state.ideal)
-        F_shift = F - state.ideal
+        state.ideal = np.minimum(ys.min(axis=0), state.ideal)
+        F_shift = ys - state.ideal
 
         dist_to_ideal = np.linalg.norm(F_shift, axis=1)
         dist_to_ideal = np.maximum(dist_to_ideal, 1.0e-64)
@@ -152,6 +220,11 @@ class RVEA(object):
         n_gen = max(int(iteration), 1)
         M = float(n_obj) if n_obj > 2 else 1.0
         progress = min(1.0, n_gen / float(n_max_gen))
+        
+        '''
+        `progress` is the progress of the algorithm, normalized to the number of iterations.
+        `alpha` is the APD penalty parameter that controls the trade-off between convergence and diversity.
+        '''
 
         survivor_records: List[Tuple[int, int, float]] = []
 
@@ -179,7 +252,7 @@ class RVEA(object):
             survivors = survivors[:population_size]
         elif len(survivors) < population_size:
             taken = set(survivors)
-            rest = [i for i in idx_all if i not in taken]
+            rest = [i for i in range(db.size) if i not in taken]
             dist_rest = dist_to_ideal[rest]
             order = np.argsort(dist_rest)
             for j in order:
@@ -187,8 +260,8 @@ class RVEA(object):
                     break
                 survivors.append(int(rest[int(j)]))
 
-        F_surv = F[survivors, :]
-        state.nadir = F_surv.max(axis=0)
+        ys_surv = ys[survivors, :]
+        state.nadir = ys_surv.max(axis=0)
 
         return survivors
 
@@ -275,7 +348,6 @@ class OptRVEA(OptBaseFramework):
     '''
     RVEA optimization (APD truncation for the mating pool, reference-vector adaptation).
     '''
-
     def __init__(self,
             problem: Problem,
             optimization_settings: SettingsOptimization,
@@ -294,8 +366,8 @@ class OptRVEA(OptBaseFramework):
         n_obj = self.problem.n_objective
         p = self.algorithm_settings.n_partitions
         if p is None:
-            p = NSGAIII.suggest_n_partitions(n_obj, self.population_size)
-        ref_pts = NSGAIII.das_dennis_reference_points(n_obj, p)
+            p = DecompositionBasedAlgorithm.suggest_n_partitions(n_obj, self.population_size)
+        ref_pts = DecompositionBasedAlgorithm.das_dennis_reference_points(n_obj, p)
         self._apd_state = RVEAApdState(ref_pts)
 
     def update_parameters(self) -> None:
@@ -327,4 +399,5 @@ class OptRVEA(OptBaseFramework):
         )
 
     def select_elite_from_valid(self) -> None:
-        DominanceBasedAlgorithm.select_elite_from_valid(self.db_valid, self.db_elite)
+        DominanceBasedAlgorithm.select_elite_from_valid(
+            self.db_valid, self.db_elite)

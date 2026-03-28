@@ -29,7 +29,11 @@ from AeroOpt.core import (
     MultiProcessEvaluation,
 )
 
-from AeroOpt.optimization.moea import DominanceBasedAlgorithm
+from AeroOpt.optimization.moea import (
+    Algorithm,
+    DominanceBasedAlgorithm,
+    DecompositionBasedAlgorithm,
+)
 from AeroOpt.optimization.utils import (
     polynomial_mutation,
     sbx_crossover,
@@ -42,93 +46,13 @@ from AeroOpt.optimization.settings import (
 )
 
 
-class MOEAD(object):
+class MOEAD(Algorithm):
     '''
     MOEA/D operators: weights, neighborhoods, decomposition, mating and
-    subproblem replacement (pymoo-style).
+    subproblem replacement.
     '''
-
     @staticmethod
-    def neighbor_indices(
-            ref_dirs: np.ndarray,
-            n_neighbors: int,
-            ) -> np.ndarray:
-        '''
-        功能：按权重向量之间的欧氏距离，为每个子问题选取最近的若干邻居下标。
-
-        输入：
-            ref_dirs — 权重矩阵，形状 [N, M]。
-            n_neighbors — 每个子问题保留的邻居个数（含自身）。
-
-        输出：
-            neighbors — 整型数组，形状 [N, n_neighbors]，第 k 行为与第 k 个
-                权重最近的 n_neighbors 个子问题下标（升序距离）。
-        '''
-        w = np.asarray(ref_dirs, dtype=float)
-        n = w.shape[0]
-        t = max(1, min(int(n_neighbors), n))
-        diff = w[:, None, :] - w[None, :, :]
-        dist = np.sqrt(np.sum(diff * diff, axis=2))
-        return np.argsort(dist, axis=1, kind='stable')[:, :t]
-
-    @staticmethod
-    def default_decomposition_name(n_objective: int) -> str:
-        '''
-        功能：与 pymoo 默认一致，≤2 目标用 Tchebycheff，否则用 PBI。
-
-        输入：n_objective — 目标个数 M。
-
-        输出：'tchebicheff' 或 'pbi'。
-        '''
-        return 'tchebicheff' if int(n_objective) <= 2 else 'pbi'
-
-    @staticmethod
-    def decomposed_values(
-            F: np.ndarray,
-            weights: np.ndarray,
-            ideal: np.ndarray,
-            method: str,
-            pbi_theta: float,
-            ) -> np.ndarray:
-        '''
-        功能：计算一组解在给定权重与理想点下的标量适应值（越小越好）。
-
-        输入：
-            F — 目标矩阵 [n, M]（已与框架一致，最小化）。
-            weights — 权重矩阵 [n, M]，每行一条权重（非负即可，内部会归一化）。
-            ideal — 理想点，形状 [M]。
-            method — 'tchebicheff' 或 'pbi'。
-            pbi_theta — PBI 的惩罚系数 θ。
-
-        输出：长度 n 的一维 float 数组，各解的分解适应值。
-        '''
-        F = np.asarray(F, dtype=float)
-        lam = np.asarray(weights, dtype=float)
-        z = np.asarray(ideal, dtype=float)
-        n, m = F.shape
-        lam_n = np.maximum(lam, 1.0e-32)
-        row_norm = np.linalg.norm(lam_n, axis=1, keepdims=True)
-        row_norm = np.maximum(row_norm, 1.0e-32)
-        lam_unit = lam_n / row_norm
-
-        diff = F - z[None, :]
-
-        if method == 'tchebicheff':
-            return np.max(lam_n * np.abs(diff), axis=1)
-
-        if method == 'pbi':
-            d1 = np.sum(diff * lam_unit, axis=1)
-            d1 = np.maximum(d1, 0.0)
-            norm_l = np.linalg.norm(lam_unit, axis=1)
-            norm_l = np.maximum(norm_l, 1.0e-32)
-            proj = (d1 / norm_l)[:, None] * lam_unit
-            d2 = np.linalg.norm(diff - proj, axis=1)
-            return d1 + float(pbi_theta) * d2
-
-        raise ValueError(f'Unknown decomposition method: {method}')
-
-    @staticmethod
-    def select_parent_slots(
+    def _select_parent_slots(
             k: int,
             neighbors: np.ndarray,
             n_pop: int,
@@ -137,105 +61,32 @@ class MOEAD(object):
             rng: np.random.Generator,
             ) -> np.ndarray:
         '''
-        功能：为子问题 k 选择用于交叉的父代槽位下标（指向当前种群中的子问题下标）。
-
-        输入：
-            k — 当前子问题下标。
-            neighbors — 邻居矩阵，形状 [N, T]，行为各子问题的邻居子问题下标。
-            n_pop — 子问题个数 N。
-            n_parents — 父代个数（一般为 2）。
-            prob_neighbor — 以邻居池选父代的概率。
-            rng — NumPy 随机数生成器。
-
-        输出：长度 n_parents 的一维 int 数组，父代对应的子问题下标。
+        Choose parent slot indices for subproblem `k` used in crossover.
+        
+        Parameters:
+        -----------
+        k: int
+            Index of the subproblem.
+        neighbors: np.ndarray
+            Neighbors of the subproblem.
+        n_pop: int
+            Total number of subproblems.
+        n_parents: int
+            Number of parents to select.
+        prob_neighbor: float
+            Probability of drawing parents from the neighborhood.
+        rng: np.random.Generator
+            Random number generator.
+            
+        Returns:
+        --------
+        parent_slots: np.ndarray
+            Indices into the current population of subproblems.
         '''
         if rng.random() < prob_neighbor:
             pool = neighbors[k, :]
             return rng.choice(pool, size=n_parents, replace=False)
         return rng.choice(n_pop, size=n_parents, replace=False)
-
-    @staticmethod
-    def objectives_matrix_for_ids(
-            db: Database,
-            id_list: Sequence[int],
-            ) -> np.ndarray:
-        '''
-        功能：按个体 ID 从数据库取出目标向量，并做与 NSGA-III 相同的最小化统一变换。
-
-        输入：
-            db — 数据库（通常为 db_valid）。
-            id_list — 个体 ID 序列，长度 n。
-
-        输出：形状 [n, M] 的 float 数组。
-        '''
-        idx = [db.get_index_from_ID(int(i)) for i in id_list]
-        return NSGAIII._unified_objectives_matrix(db, idx)
-
-    @staticmethod
-    def replace_subproblem(
-            db: Database,
-            slot_ids: np.ndarray,
-            neighbors: np.ndarray,
-            ref_dirs: np.ndarray,
-            ideal: np.ndarray,
-            k: int,
-            offspring_id: int,
-            method: str,
-            pbi_theta: float,
-            ) -> np.ndarray:
-        '''
-        功能：用子代更新子问题 k 的邻居中分解值更优的槽位（MOEA/D 环境选择）。
-
-        输入：
-            db — 可行解数据库。
-            slot_ids — 长度 N 的 ID 数组，slot_ids[j] 为子问题 j 当前代表解 ID。
-            neighbors — 邻居下标矩阵 [N, T]。
-            ref_dirs — 权重 [N, M]。
-            ideal — 当前理想点 [M]。
-            k — 当前产生子代的子问题下标。
-            offspring_id — 子代个体 ID（须已在 db 中且已评估）。
-            method、pbi_theta — 分解类型与 PBI 参数。
-
-        输出：更新后的 slot_ids（与输入共享同一数组则原地修改；返回该数组引用）。
-        '''
-        oidx = db.get_index_from_ID(int(offspring_id))
-        off = db.individuals[oidx]
-        if not off.valid_evaluation:
-            return slot_ids
-
-        Nloc = neighbors[k, :]
-        ids = slot_ids[Nloc]
-        F_nei = MOEAD.objectives_matrix_for_ids(db, ids)
-        F_off = MOEAD.objectives_matrix_for_ids(db, [offspring_id])
-        w_nei = ref_dirs[Nloc, :]
-
-        fv_nei = MOEAD.decomposed_values(
-            F_nei, w_nei, ideal, method, pbi_theta)
-        fv_off = MOEAD.decomposed_values(
-            F_off, w_nei, ideal, method, pbi_theta)
-
-        better = np.where(fv_off < fv_nei)[0]
-        for j in better:
-            slot_ids[Nloc[int(j)]] = int(offspring_id)
-        return slot_ids
-
-    @staticmethod
-    def update_ideal(
-            ideal: np.ndarray,
-            F_row: np.ndarray,
-            ) -> np.ndarray:
-        '''
-        功能：用单个个体的目标向量更新逐维理想点（分量最小值）。
-
-        输入：
-            ideal — 当前理想点 [M]。
-            F_row — 单个目标向量 [M]。
-
-        输出：更新后的 ideal（原地写入并返回）。
-        '''
-        F_row = np.asarray(F_row, dtype=float)
-        np.minimum(ideal, F_row, out=ideal)
-        return ideal
 
     @staticmethod
     def generate_candidate_individuals(
@@ -257,23 +108,47 @@ class MOEAD(object):
             pending_list: List[Tuple[int, int]],
             ) -> None:
         '''
-        功能：按 MOEA/D 并行子代策略生成一整代子代写入 db_candidate，并记录
-            (子问题下标, 子代 ID) 供评估后做邻居替换。
-
-        输入：
-            db_valid — 可行归档（用于按 ID 取父代 x）。
-            db_candidate — 清空后写入子代。
-            ref_dirs, neighbors — 权重与邻居结构。
-            slot_ids — 各子问题当前代表解 ID。
-            prob_neighbor — 邻域交配概率。
-            decomposition_method, pbi_theta — 分解方法（此处仅由上层在替换阶段使用）。
-            ideal — 理想点（传入以保持签名一致；本函数不修改）。
-            iteration — 当前迭代号。
-            cross_rate, pow_sbx, mut_rate, pow_poly — SBX/PM 参数。
-            rng — 随机数生成器。
-            pending_list — 空列表，函数内填入 (k, offspring_ID)。
-
-        输出：无；副作用为填充 db_candidate 与 pending_list。
+        Generate one offspring per subproblem in random order (MOEA/D parallel
+        offspring scheme): SBX crossover between parents from neighborhood or
+        global pool, then polynomial mutation. Clears `db_candidate` and appends
+        `(subproblem_index, offspring_ID)` to `pending_list` for neighbor
+        replacement after evaluation. `decomposition_method`, `pbi_theta`, and
+        `ideal` are accepted for API symmetry; this routine does not use them.
+        
+        Parameters:
+        -----------
+        db_valid: Database
+            Valid database.
+        db_candidate: Database
+            Candidate database.
+        ref_dirs: np.ndarray
+            Reference directions.
+        neighbors: np.ndarray
+            Neighbors of the subproblem.
+        slot_ids: np.ndarray
+            Indices into the current population of subproblems.
+        prob_neighbor: float
+            Probability of drawing parents from the neighborhood.
+        decomposition_method: str
+            Decomposition method.
+        pbi_theta: float
+            PBI theta parameter.
+        ideal: np.ndarray
+            Ideal point.
+        iteration: int
+            Current iteration.
+        cross_rate: float
+            Crossover rate.
+        pow_sbx: float
+            SBX power.
+        mut_rate: float
+            Mutation rate.
+        pow_poly: float
+            Polynomial power.
+        rng: np.random.Generator
+            Random number generator.
+        pending_list: List[Tuple[int, int]]
+            List of (subproblem_index, offspring_ID) to be replaced.
         '''
         _ = decomposition_method, pbi_theta, ideal
 
@@ -288,7 +163,7 @@ class MOEAD(object):
         n_parents = 2
 
         for k in order:
-            p_slots = MOEAD.select_parent_slots(
+            p_slots = MOEAD._select_parent_slots(
                 int(k), neighbors, n_pop, n_parents,
                 prob_neighbor, rng)
             id1 = int(slot_ids[p_slots[0]])
@@ -316,50 +191,155 @@ class MOEAD(object):
             pending_list.append((int(k), int(indi.ID)))
 
     @staticmethod
-    def apply_pending_replacements(
-            db: Database,
-            pending: Sequence[Tuple[int, int]],
-            slot_ids: np.ndarray,
-            neighbors: np.ndarray,
-            ref_dirs: np.ndarray,
-            ideal: np.ndarray,
-            method: str,
-            pbi_theta: float,
-            ) -> None:
+    def neighbor_indices(ref_dirs: np.ndarray, n_neighbors: int) -> np.ndarray:
         '''
-        功能：按生成顺序依次用已评估子代更新理想点并执行邻居替换。
+        Compute the neighborhood structure of reference directions in MOEA/D.
 
-        输入：
-            db — 评估后的可行归档（含新子代）。
-            pending — (子问题下标 k, 子代 ID) 列表，顺序须与生成时一致。
-            slot_ids, neighbors, ref_dirs, ideal — MOEA/D 状态（ideal 与 slot_ids 会被更新）。
-            method, pbi_theta — 分解参数。
+        In MOEA/D, each reference direction defines a subproblem. Instead of
+        treating all subproblems independently, a neighborhood is constructed
+        so that information (e.g., mating and solution updates) is shared only
+        among similar subproblems. Similarity is defined in the weight space.
 
-        输出：无。
+        This function computes pairwise Euclidean distances between reference
+        directions and, for each direction, selects the indices of its
+        n_neighbors closest directions (including itself). The resulting
+        neighborhood is used to:
+        - restrict parent selection to nearby subproblems,
+        - propagate solutions locally during replacement,
+        - improve convergence efficiency while preserving diversity.
 
-        若子代未进入可行归档（例如违反约束），则跳过该条 pending。
+        Parameters
+        ----------
+        ref_dirs : np.ndarray [n_subproblems, n_objectives]
+            Array of reference directions (weight vectors).
+        n_neighbors : int
+            Number of nearest neighbors to select for each reference direction.
+
+        Returns
+        -------
+        neighbors: np.ndarray [n_subproblems, t]
+            Indices of nearest neighbors for each reference direction.
+            Each row contains the indices of the closest reference 
+            directions sorted by distance.
+            t = min(n_neighbors, n_subproblems).
         '''
-        for k, oid in pending:
-            oid_i = int(oid)
-            try:
-                oidx = db.get_index_from_ID(oid_i)
-            except ValueError:
-                continue
-            off = db.individuals[oidx]
-            if not off.valid_evaluation:
-                continue
-            F_row = NSGAIII._unified_objectives_matrix(db, [oidx])[0]
-            MOEAD.update_ideal(ideal, F_row)
-            MOEAD.replace_subproblem(
-                db, slot_ids, neighbors, ref_dirs,
-                ideal, int(k), oid_i, method, pbi_theta)
+        w = np.asarray(ref_dirs, dtype=float)
+        n_subproblems = w.shape[0]
+        t = max(1, min(int(n_neighbors), n_subproblems))
+        diff = w[:, None, :] - w[None, :, :]
+        dist = np.sqrt(np.sum(diff * diff, axis=2))
+        return np.argsort(dist, axis=1, kind='stable')[:, :t]
+
+    @staticmethod
+    def default_decomposition_name(n_objective: int) -> str:
+        '''
+        Default decomposition method:
+        - Tchebycheff for <=2 objectives,
+        - PBI for >2 objectives.
+        '''
+        return 'tchebicheff' if int(n_objective) <= 2 else 'pbi'
+
+    @staticmethod
+    def decomposed_values(ys: np.ndarray, weights: np.ndarray,
+            ideal: np.ndarray, method: str, pbi_theta: float) -> np.ndarray:
+        '''
+        Compute scalarized objective values for MOEA/D subproblems.
+
+        In MOEA/D, each subproblem is defined by a reference direction (weight vector).
+        Since solutions have multiple objectives, this function converts (decomposes)
+        each multi-objective vector into a single scalar value according to the chosen
+        decomposition method. These scalar values are then used to compare solutions
+        and perform neighborhood-based updates (smaller is better).
+
+        Two decomposition methods are supported:
+
+        1. Tchebycheff (tchebicheff):
+            
+            Emphasizes the worst (most deviated) objective.
+            This promotes balanced improvement across objectives and is commonly used
+            for low-dimensional objective spaces.
+
+        2. Penalty-based Boundary Intersection (PBI):
+        
+            Decomposes the objective vector into:
+            d1: distance along the reference direction (convergence).
+            d2: perpendicular distance to the direction (diversity).
+
+            The scalar value is a combination of the convergence and diversity,
+            where `pbi_theta` controls the trade-off between convergence and diversity.
+            This method is more suitable for higher-dimensional objective spaces.
+
+        Parameters
+        ----------
+        ys : np.ndarray [n_solutions, n_objectives]
+            Objective values of candidate solutions.
+        weights : np.ndarray [n_subproblems, n_objectives]
+            Reference directions (weight vectors), each corresponding to a subproblem.
+        ideal : np.ndarray [n_objectives]
+            Ideal point (best observed value for each objective).
+        method : str
+            Decomposition method to use: 'tchebicheff' or 'pbi'.
+        pbi_theta : float
+            Penalty parameter for PBI, controlling the balance between
+            convergence (d1) and diversity (d2).
+
+        Returns
+        -------
+        scalars: np.ndarray [n_solutions]
+            Scalar decomposition values for each solution.
+            Lower values indicate better performance under the corresponding subproblem.
+        '''
+        ys = np.asarray(ys, dtype=float)
+        weights = np.asarray(weights, dtype=float)
+        ideal = np.asarray(ideal, dtype=float)
+        lam_n = np.maximum(weights, 1.0e-32)
+        row_norm = np.linalg.norm(lam_n, axis=1, keepdims=True)
+        row_norm = np.maximum(row_norm, 1.0e-32)
+        lam_unit = lam_n / row_norm
+
+        diff = ys - ideal[None, :]
+
+        if method == 'tchebicheff':
+            return np.max(lam_n * np.abs(diff), axis=1)
+
+        if method == 'pbi':
+            d1 = np.sum(diff * lam_unit, axis=1)
+            d1 = np.maximum(d1, 0.0)
+            norm_l = np.linalg.norm(lam_unit, axis=1)
+            norm_l = np.maximum(norm_l, 1.0e-32)
+            proj = (d1 / norm_l)[:, None] * lam_unit
+            d2 = np.linalg.norm(diff - proj, axis=1)
+            return d1 + float(pbi_theta) * d2
+
+        raise ValueError(f'Unknown decomposition method: {method}')
+
+    @staticmethod
+    def update_ideal(ideal: np.ndarray, ys_row: np.ndarray) -> np.ndarray:
+        '''
+        Update ideal point using one (scaled) objective row.
+        
+        Parameters:
+        -----------
+        ideal: np.ndarray [n_objective]
+            Ideal point (scaled values).
+        ys_row: np.ndarray [n_objective]
+            (Scaled) objective row.
+            
+        Returns:
+        --------
+        ideal: np.ndarray [n_objective]
+            Updated ideal point (scaled values).
+        '''
+        ys_row = np.asarray(ys_row, dtype=float)
+        np.minimum(ideal, ys_row, out=ideal)
+        return ideal
 
 
 class OptMOEAD(OptBaseFramework):
     '''
-    MOEA/D 与 OptBaseFramework 的对接：维护子问题槽位、理想点与待替换队列。
+    Driver wiring MOEA/D to `OptBaseFramework`: subproblem slots, ideal point,
+    and pending replacement queue.
     '''
-
     def __init__(self,
             problem: Problem,
             optimization_settings: SettingsOptimization,
@@ -381,12 +361,12 @@ class OptMOEAD(OptBaseFramework):
 
         p = self.algorithm_settings.n_partitions
         if p is None:
-            p = NSGAIII.suggest_n_partitions(
+            p = DecompositionBasedAlgorithm.suggest_n_partitions(
                 n_obj, self.population_size)
-        ref = NSGAIII.das_dennis_reference_points(n_obj, p)
+        ref = DecompositionBasedAlgorithm.das_dennis_reference_points(n_obj, p)
         if ref.shape[0] != self.population_size:
             raise ValueError(
-                "MOEA/D: population_size must equal the number of Das–Dennis "
+                "MOEA/D: population_size must equal the number of Das-Dennis "
                 f"reference points ({ref.shape[0]}) for n_partitions={p}. "
                 "Adjust population_size or n_partitions in settings.")
 
@@ -409,30 +389,27 @@ class OptMOEAD(OptBaseFramework):
 
     def main(self) -> None:
         '''
-        功能：调用基类主循环，并在结束后对最后一代尚未应用的子代执行邻居替换，
-            与 pymoo 逐个子代更新在代数末尾的状态对齐。
-
-        输入/输出：无；副作用为可能更新 ``_slot_ids``、``_ideal`` 并清空 ``_pending``。
+        Run the base main loop, then apply pending neighbor replacements for the
+        last generation so state matches per-offspring updates at a generation
+        boundary (as in pymoo). May update `_slot_ids` and `_ideal` and clear
+        `_pending`.
         '''
         super().main()
         if self._pending:
             self._ensure_state()
             assert self._ideal is not None and self._slot_ids is not None
-            MOEAD.apply_pending_replacements(
-                self.db_valid, self._pending, self._slot_ids,
-                self._neighbors, self._ref_dirs, self._ideal,
-                self._decomposition, self.algorithm_settings.pbi_theta)
+            self._apply_pending_replacements()
             self._pending.clear()
+
 
     def _ensure_state(self) -> None:
         '''
-        功能：在首次进化迭代前，为 N 个子问题槽位绑定可行代表个体 ID，并据其目标计算理想点。
-
-        可行解个数 n_valid 可以小于 N：此时按下标 i % n_valid 循环复用归档中的可行个体，
-        使每个权重仍有一个“槽位”（可能暂时对应同一决策向量），与经典实现里“每子问题一解”
-        在代数推进后由邻域替换逐步拉开；仅当没有可行解时报错。
-
-        输入/输出：仅操作 ``self._slot_ids``、``self._ideal``；无参数与返回值。
+        Before the first evolutionary iteration, bind each of `N` subproblem
+        slots to a valid representative individual ID and set `_ideal` from
+        their objectives. If `n_valid < N`, cycle through valid individuals
+        with `i % n_valid` so every weight has a slot (some may share the same
+        decision vector initially; neighborhood replacement diversifies later).
+        Raises if there are no valid individuals.
         '''
         if self._slot_ids is not None:
             return
@@ -446,22 +423,75 @@ class OptMOEAD(OptBaseFramework):
             [self.db_valid.get_ID_from_index(i % n_v) for i in range(n)],
             dtype=np.int64,
         )
-        self._ideal = MOEAD.objectives_matrix_for_ids(
-            self.db_valid, self._slot_ids).min(axis=0).astype(float)
+        self._ideal = self.db_valid.get_unified_objectives(
+            scale=True, ID_list=self._slot_ids).min(axis=0).astype(float)
+
+    def _replace_subproblem(self, k: int, offspring_id: int) -> None:
+        '''
+        Replace slots among neighbors of subproblem `k` where the offspring 
+        improves the decomposition scalar value.
+        
+        `self._slot_ids[j]` holds the representative individual ID for subproblem `j`.
+        If the offspring is not in `db_valid` with a valid evaluation,
+        `self._slot_ids` remains unchanged.
+        
+        Parameters:
+        -----------
+        k: int
+            Index of the subproblem.
+        offspring_id: int
+            ID of the offspring.            
+        '''
+        oidx = self.db_valid.get_index_from_ID(int(offspring_id))
+        off = self.db_valid.individuals[oidx]
+        if not off.valid_evaluation:
+            return
+
+        Nloc = self._neighbors[k, :]
+        ids = self._slot_ids[Nloc]
+        F_nei = self.db_valid.get_unified_objectives(scale=True, ID_list=ids)
+        F_off = self.db_valid.get_unified_objectives(scale=True, index_list=[oidx])
+        w_nei = self._ref_dirs[Nloc, :]
+
+        fv_nei = MOEAD.decomposed_values(
+            F_nei, w_nei, self._ideal, self._decomposition, self.algorithm_settings.pbi_theta)
+        fv_off = MOEAD.decomposed_values(
+            F_off, w_nei, self._ideal, self._decomposition, self.algorithm_settings.pbi_theta)
+
+        better = np.where(fv_off < fv_nei)[0]
+        for j in better:
+            self._slot_ids[Nloc[int(j)]] = int(offspring_id)
+
+    def _apply_pending_replacements(self) -> None:
+        '''
+        For each `(k, offspring_id)` in `pending` (same order as generation),
+        update the ideal point from the offspring objectives and run neighbor
+        replacement for subproblem `k`. Skip entries whose ID is missing from
+        `db` or lacks a valid evaluation (e.g. infeasible offspring).
+        '''
+        for k, oid in self._pending:
+            oid_i = int(oid)
+            try:
+                oidx = self.db_valid.get_index_from_ID(oid_i)
+            except ValueError:
+                continue
+            off = self.db_valid.individuals[oidx]
+            if not off.valid_evaluation:
+                continue
+            ys_row = self.db_valid.get_unified_objectives(scale=True, index_list=[oidx])[0]
+            MOEAD.update_ideal(self._ideal, ys_row)
+            self._replace_subproblem(int(k), oid_i)
+
 
     def generate_candidate_individuals(self) -> None:
         '''
-        功能：先处理上一轮已评估子代的替换，再生成本轮 MOEA/D 子代。
-
-        输入/输出：遵循基类约定，写入 ``db_candidate``；无显式参数与返回值。
+        Apply replacements for the previous generation's evaluated offspring, then
+        generate this generation's MOEA/D candidates into `db_candidate`.
         '''
         if self._pending:
             self._ensure_state()
             assert self._ideal is not None and self._slot_ids is not None
-            MOEAD.apply_pending_replacements(
-                self.db_valid, self._pending, self._slot_ids,
-                self._neighbors, self._ref_dirs, self._ideal,
-                self._decomposition, self.algorithm_settings.pbi_theta)
+            self._apply_pending_replacements()
             self._pending.clear()
 
         self._ensure_state()
@@ -491,10 +521,5 @@ class OptMOEAD(OptBaseFramework):
         )
 
     def select_elite_from_valid(self) -> None:
-        '''
-        功能：从可行归档中选精英集（非支配排序 + 拥挤距离，与 NSGA-II 一致）。
-
-        输入/输出：同 ``DominanceBasedAlgorithm.select_elite_from_valid``。
-        '''
         DominanceBasedAlgorithm.select_elite_from_valid(
             self.db_valid, self.db_elite)

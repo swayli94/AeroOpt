@@ -70,6 +70,7 @@ def sbx_crossover(
 
     return child1, child2
 
+
 def binomial_crossover(x_target: np.ndarray, x_mutant: np.ndarray,
         cr: float, rng: np.random.Generator) -> np.ndarray:
     '''
@@ -187,6 +188,37 @@ def binary_tournament_selection(
             selected.append(a if rng.random() < 0.5 else b)
 
     return selected
+
+
+def perpendicular_distance(z: np.ndarray, direction_unit: np.ndarray) -> float:
+    '''
+    Perpendicular distance from objective vector z to a unit direction.
+    '''
+    t = float(np.dot(z, direction_unit))
+    t = max(t, 0.0)
+    return float(np.linalg.norm(z - t * direction_unit))
+
+
+def reference_directions(ref_points: np.ndarray) -> np.ndarray:
+    '''
+    Normalize reference points to unit direction vectors.
+    '''
+    norms = np.linalg.norm(ref_points, axis=1, keepdims=True)
+    norms = np.maximum(norms, 1.0e-12)
+    return ref_points / norms
+
+
+def associate_to_reference(z: np.ndarray, ref_dirs: np.ndarray) -> Tuple[int, float]:
+    '''
+    Associate one normalized objective vector to nearest reference direction.
+    '''
+    best_j, best_d = 0, float('inf')
+    for j in range(ref_dirs.shape[0]):
+        d = perpendicular_distance(z, ref_dirs[j, :])
+        if d < best_d:
+            best_d, best_j = d, j
+    return best_j, best_d
+
 
 def sample_de_rand_1_indices(rng: np.random.Generator, n_pop: int,
         i_target: int) -> Tuple[int, int, int]:

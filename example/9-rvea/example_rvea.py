@@ -120,7 +120,6 @@ def build_settings_file(
             "mut_rate": 0.9,
             "pow_sbx": 20.0,
             "pow_poly": 20.0,
-            "reserve_ratio": 0.3,
             "n_partitions": None,
             "alpha": 2.0,
             "adapt_freq": 0.1,

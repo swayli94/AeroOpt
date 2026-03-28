@@ -141,7 +141,7 @@ def build_settings_file(
             "pow_sbx": 20.0,
             "pow_poly": 20.0,
             "n_partitions": None,
-            "n_neighbors": 20,
+            "n_neighbors": 5,
             "prob_neighbor_mating": 0.9,
             "decomposition": "auto",
             "pbi_theta": 5.0,

@@ -37,33 +37,14 @@ from AeroOpt.core import (
     MultiProcessEvaluation,
 )
 from AeroOpt.optimization.base import OptBaseFramework
-from AeroOpt.optimization.moea import DominanceBasedAlgorithm
+from AeroOpt.optimization.moea import Algorithm, DominanceBasedAlgorithm
 from AeroOpt.optimization.settings import SettingsNRBO, SettingsOptimization
-from AeroOpt.optimization.stochastic.nsgaiii import NSGAIII
 
 
-class NRBO(object):
+class NRBO(Algorithm):
     '''
     NRBO operators (NRSR + TAO) adapted to the AeroOpt database workflow.
     '''
-
-    @staticmethod
-    def build_temporary_parent_database(
-            db_valid: Database,
-            population_size: int,
-            ) -> Database:
-        '''
-        Build a temporary parent pool from the valid archive.
-
-        Inputs:
-            db_valid: Valid database containing feasible individuals.
-            population_size: Target number of parent individuals.
-
-        Output:
-            A `Database` view/copy used as the parent pool for NRBO evolution.
-        '''
-        return DominanceBasedAlgorithm.build_temporary_parent_database(
-            db_valid, population_size)
 
     @staticmethod
     def _safe_divide(numer: np.ndarray, denom: np.ndarray) -> np.ndarray:
@@ -85,7 +66,7 @@ class NRBO(object):
         return np.asarray(numer, dtype=float) / d
 
     @staticmethod
-    def search_rule(
+    def _search_rule(
             x_best: np.ndarray,
             x_worst: np.ndarray,
             x_now: np.ndarray,
@@ -141,10 +122,10 @@ class NRBO(object):
         '''
         if db.size <= 0:
             raise ValueError('Cannot select best/worst from an empty database.')
-        F = NSGAIII._unified_objectives_matrix(db, list(range(db.size)))
-        if F.shape[1] != 1:
+        scaled_ys = db.get_unified_objectives(scale=True)
+        if scaled_ys.shape[1] != 1:
             raise ValueError('NRBO only supports single-objective problems.')
-        vals = F[:, 0]
+        vals = scaled_ys[:, 0]
         i_best = int(np.argmin(vals))
         i_worst = int(np.argmax(vals))
         return i_best, i_worst
@@ -182,7 +163,7 @@ class NRBO(object):
         if rng is None:
             rng = np.random.default_rng()
 
-        parents = NRBO.build_temporary_parent_database(
+        parents = DominanceBasedAlgorithm.build_temporary_parent_database(
             db_valid, population_size)
         n_pop = parents.size
         if n_pop <= 0:
@@ -212,7 +193,7 @@ class NRBO(object):
 
             a, b = rng.random(2)
             rho = a * (x_best - X[i]) + b * (x_r1 - x_r2)
-            x1, x2 = NRBO.search_rule(
+            x1, x2 = NRBO._search_rule(
                 x_best=x_best, x_worst=x_worst, x_now=X[i], rho=rho, rng=rng)
 
             x3 = X[i] - delta * (x2 - x1)

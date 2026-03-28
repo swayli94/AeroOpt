@@ -599,7 +599,10 @@ class Problem(object):
         y: ndarray [n]
             output vector by the type list
         '''
-        return y[np.isin(self.problem_settings.output_type, type_list)]
+        mask = np.isin(np.asarray(self.problem_settings.output_type), type_list)
+        if y.ndim == 1:
+            return y[mask]
+        return y[:, mask]
     
     def calculate_scaled_distance(self, x1: np.ndarray, x2: np.ndarray,
                             is_scaled_x: bool = False,

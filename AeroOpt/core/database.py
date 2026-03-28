@@ -237,14 +237,14 @@ class Database(object):
         if self.size <= 0:
             return None
     
-        if isinstance(ID_list, list):
+        if ID_list is not None:
             nn = len(ID_list)
             xs = np.zeros([nn, self.problem.n_input])
             for i in range(nn):
-                ii = self.get_index_from_ID(ID_list[i])
+                ii = self.get_index_from_ID(int(ID_list[i]))
                 xs[i,:] = self.individuals[ii].x
 
-        elif isinstance(index_list, list):
+        elif index_list is not None:
             nn = len(index_list)
             xs = np.zeros([nn, self.problem.n_input])
             for i in range(nn):
@@ -287,19 +287,19 @@ class Database(object):
         if self.size <= 0:
             return None
     
-        if isinstance(ID_list, list):
+        if ID_list is not None:
             nn = len(ID_list)
             ys = np.zeros([nn, self.problem.n_output])
             for i in range(nn):
-                ii = self.get_index_from_ID(ID_list[i])
+                ii = self.get_index_from_ID(int(ID_list[i]))
                 ys[i,:] = self.individuals[ii].y
-    
-        elif isinstance(index_list, list):
+
+        elif index_list is not None:
             nn = len(index_list)
             ys = np.zeros([nn, self.problem.n_output])
             for i in range(nn):
                 ys[i,:] = self.individuals[index_list[i]].y
-    
+
         else:
             nn = self.size
             ys = np.zeros([nn, self.problem.n_output])
@@ -314,7 +314,9 @@ class Database(object):
     
         return ys
     
-    def get_unified_objectives(self, scale: bool = False) -> np.ndarray:
+    def get_unified_objectives(self, scale: bool = False,
+                ID_list: List[int] = None,
+                index_list: List[int] = None) -> np.ndarray:
         '''
         Return objective matrix with unified minimization direction.
         
@@ -322,21 +324,20 @@ class Database(object):
         -----------
         scale: bool
             If True, return scaled objectives.
+        ID_list: List[int]
+            List of IDs of individuals to be selected. This has higher priority than `index_list`.
+        index_list: List[int]
+            List of index of individuals to be selected.
             
         Returns:
         --------
         ys: np.ndarray [nn, n_objective]
-            Objective matrix with unified minimization direction.
+            (Scaled) objective matrix with unified minimization direction.
         '''
-        if self.size <= 0:
-            return np.zeros((0, 0), dtype=float)
-
-        ys = np.zeros((self.size, self.problem.n_objective), dtype=float)
-        for i, indi in enumerate(self.individuals):
-            ys[i, :] = indi.objectives
-
-        if scale:
-            ys = self.problem.scale_y(ys)
+        ys = self.get_ys(scale=scale, type_list=[1,-1],
+                        ID_list=ID_list, index_list=index_list)
+        if ys is None:
+            return np.empty((0, 0))
 
         i_obj = 0
         for out_type in self.problem.problem_settings.output_type:

@@ -8,7 +8,6 @@ with box constraints. IEEE TEC, 18(4), 577-601.
 
 from __future__ import annotations
 
-import math
 from typing import List, Optional
 
 import numpy as np
@@ -20,10 +19,14 @@ from AeroOpt.core import (
     MultiProcessEvaluation,
 )
 
-from AeroOpt.optimization.moea import DominanceBasedAlgorithm
+from AeroOpt.optimization.moea import (
+    Algorithm, DominanceBasedAlgorithm, DecompositionBasedAlgorithm
+)
 from AeroOpt.optimization.utils import (
+    associate_to_reference,
     binary_tournament_selection,
     polynomial_mutation,
+    reference_directions,
     sbx_crossover,
 )
 from AeroOpt.optimization.base import OptBaseFramework
@@ -32,69 +35,13 @@ from AeroOpt.optimization.settings import (
 )
 
 
-class NSGAIII(object):
+class NSGAIII(Algorithm):
     '''
     NSGA-III operators.
     '''
 
     @staticmethod
-    def suggest_n_partitions(n_objective: int, population_size: int) -> int:
-        '''
-        Pick a simplex partition count so the number of reference points is near
-        `population_size` (combinatorial count C(p+M-1, M-1)).
-        '''
-        if n_objective <= 1:
-            return 1
-        best_p, best_d = 1, float('inf')
-        pop = max(1, int(population_size))
-        # Upper search bound: bi-objective needs p ≈ pop-1; many-objective uses smaller p.
-        hi = max(41, pop + 25)
-        for p in range(1, hi):
-            n_ref = math.comb(p + n_objective - 1, n_objective - 1)
-            d = abs(n_ref - pop)
-            if d < best_d:
-                best_d, best_p = d, p
-        return max(1, best_p)
-
-    @staticmethod
-    def das_dennis_reference_points(n_objective: int, n_partitions: int) -> np.ndarray:
-        '''
-        Das-Dennis reference points on the (M-1)-simplex, shape [n_ref, M].
-        '''
-        if n_objective <= 0:
-            return np.zeros((0, 0))
-        if n_objective == 1:
-            return np.ones((1, 1))
-        n_partitions = max(1, int(n_partitions))
-        out: List[List[int]] = []
-
-        def rec(left: int, m: int, prefix: List[int]) -> None:
-            if m == 0:
-                out.append(prefix + [left])
-                return
-            for i in range(left + 1):
-                rec(left - i, m - 1, prefix + [i])
-
-        rec(n_partitions, n_objective - 1, [])
-        return np.asarray(out, dtype=float) / float(n_partitions)
-
-    @staticmethod
-    def _unified_objectives_matrix(db: Database, indices: List[int]) -> np.ndarray:
-        n_obj = db.problem.n_objective
-        ys = np.zeros((len(indices), n_obj), dtype=float)
-        for r, idx in enumerate(indices):
-            ys[r, :] = db.individuals[idx].objectives
-        j = 0
-        for out_type in db.problem.problem_settings.output_type:
-            if abs(out_type) != 1:
-                continue
-            if out_type == -1:
-                ys[:, j] = -ys[:, j]
-            j += 1
-        return ys
-
-    @staticmethod
-    def normalize_objectives_nsgaiii(Z: np.ndarray) -> np.ndarray:
+    def _normalize_objectives_nsgaiii(Z: np.ndarray) -> np.ndarray:
         '''
         Ideal-point shift and intercept scaling (NSGA-III style).
         '''
@@ -121,28 +68,7 @@ class NSGAIII(object):
         return zp / intercepts
 
     @staticmethod
-    def _perpendicular_distance(z: np.ndarray, direction_unit: np.ndarray) -> float:
-        t = float(np.dot(z, direction_unit))
-        t = max(t, 0.0)
-        return float(np.linalg.norm(z - t * direction_unit))
-
-    @staticmethod
-    def _reference_directions(ref_points: np.ndarray) -> np.ndarray:
-        norms = np.linalg.norm(ref_points, axis=1, keepdims=True)
-        norms = np.maximum(norms, 1.0e-12)
-        return ref_points / norms
-
-    @staticmethod
-    def _associate_to_ref(z: np.ndarray, ref_dirs: np.ndarray) -> tuple:
-        best_j, best_d = 0, float('inf')
-        for j in range(ref_dirs.shape[0]):
-            d = NSGAIII._perpendicular_distance(z, ref_dirs[j, :])
-            if d < best_d:
-                best_d, best_j = d, j
-        return best_j, best_d
-
-    @staticmethod
-    def select_population_indices(
+    def _select_population_indices_nsgaiii(
             db: Database,
             fronts: List[List[int]],
             population_size: int,
@@ -167,16 +93,16 @@ class NSGAIII(object):
 
             k_need = population_size - len(selected)
             union_idx = selected + list(front)
-            z_union = NSGAIII._unified_objectives_matrix(db, union_idx)
-            zn = NSGAIII.normalize_objectives_nsgaiii(z_union)
+            z_union = db.get_unified_objectives(scale=True, index_list=union_idx)
+            zn = NSGAIII._normalize_objectives_nsgaiii(z_union)
             row_of = {g: r for r, g in enumerate(union_idx)}
 
-            ref_dirs = NSGAIII._reference_directions(ref_points)
+            ref_dirs = reference_directions(ref_points)
 
             niche = np.zeros(ref_dirs.shape[0], dtype=int)
             for idx in selected:
                 z = zn[row_of[idx], :]
-                j, _ = NSGAIII._associate_to_ref(z, ref_dirs)
+                j, _ = associate_to_reference(z, ref_dirs)
                 niche[j] += 1
 
             pool = list(front)
@@ -184,7 +110,7 @@ class NSGAIII(object):
             assoc_d = np.zeros(len(pool), dtype=float)
             for pi, idx in enumerate(pool):
                 z = zn[row_of[idx], :]
-                j, d = NSGAIII._associate_to_ref(z, ref_dirs)
+                j, d = associate_to_reference(z, ref_dirs)
                 assoc_j[pi] = j
                 assoc_d[pi] = d
 
@@ -223,7 +149,7 @@ class NSGAIII(object):
         return selected
 
     @staticmethod
-    def environmental_selection(
+    def environmental_selection_indices(
             combined: Database,
             population_size: int,
             n_partitions: int,
@@ -236,8 +162,8 @@ class NSGAIII(object):
         fronts = DominanceBasedAlgorithm.non_dominated_ranking(combined)
         n_obj = combined.problem.n_objective
         p = max(1, int(n_partitions))
-        ref_pts = NSGAIII.das_dennis_reference_points(n_obj, p)
-        return NSGAIII.select_population_indices(
+        ref_pts = DecompositionBasedAlgorithm.das_dennis_reference_points(n_obj, p)
+        return NSGAIII._select_population_indices_nsgaiii(
             combined, fronts, population_size, ref_pts)
 
     @staticmethod
@@ -262,9 +188,9 @@ class NSGAIII(object):
             return db_work
         p = n_partitions
         if p is None:
-            p = NSGAIII.suggest_n_partitions(
+            p = DecompositionBasedAlgorithm.suggest_n_partitions(
                 db_valid.problem.n_objective, population_size)
-        idx = NSGAIII.environmental_selection(db_work, population_size, p)
+        idx = NSGAIII.environmental_selection_indices(db_work, population_size, p)
         return db_work.get_sub_database(index_list=idx, deepcopy=True)
 
     @staticmethod

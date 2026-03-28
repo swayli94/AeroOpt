@@ -9,11 +9,11 @@ from AeroOpt.core import Database, Individual, Problem, SettingsData, SettingsPr
 from AeroOpt.optimization import (
     DominanceBasedAlgorithm,
     MOEAD,
-    NSGAIII,
     OptMOEAD,
     SettingsMOEAD,
     SettingsOptimization,
 )
+from AeroOpt.optimization.utils import das_dennis_reference_points
 
 
 @pytest.fixture(scope="module")
@@ -122,7 +122,7 @@ def test_opt_moead_select_elite_from_valid(
 def test_generate_candidate_individuals_requires_valid_population(problem_biobj):
     db_valid = Database(problem_biobj, database_type="valid")
     db_candidate = Database(problem_biobj, database_type="population")
-    ref = NSGAIII.das_dennis_reference_points(2, 3)
+    ref = das_dennis_reference_points(2, 3)
     neighbors = MOEAD.neighbor_indices(ref, 4)
     slot_ids = np.array([1, 2, 3, 4], dtype=np.int64)
     ideal = np.array([0.0, 0.0])
@@ -152,7 +152,7 @@ def test_generate_candidate_individuals_requires_valid_population(problem_biobj)
 def test_generate_candidate_individuals_builds_offspring(problem_biobj):
     random.seed(123)
     np.random.seed(123)
-    ref = NSGAIII.das_dennis_reference_points(2, 3)
+    ref = das_dennis_reference_points(2, 3)
     assert ref.shape[0] == 4
     neighbors = MOEAD.neighbor_indices(ref, 20)
     slot_ids = np.array([1, 2, 3, 4], dtype=np.int64)

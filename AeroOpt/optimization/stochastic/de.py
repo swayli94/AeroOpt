@@ -19,12 +19,12 @@ from AeroOpt.core import (
     Problem,
 )
 from AeroOpt.optimization.base import OptBaseFramework
-from AeroOpt.optimization.moea import DominanceBasedAlgorithm
+from AeroOpt.optimization.moea import Algorithm, DominanceBasedAlgorithm
 from AeroOpt.optimization.settings import SettingsDE, SettingsOptimization
 from AeroOpt.optimization.utils import sample_de_rand_1_indices, binomial_crossover
 
 
-class DiffEvolution(object):
+class DiffEvolution(Algorithm):
     '''
     Classic differential evolution (DE/rand/1/bin) with binomial crossover.
     '''
