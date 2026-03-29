@@ -13,7 +13,7 @@ from AeroOpt.optimization import (
     NSGAIII,
     OptNSGAIII,
 )
-from AeroOpt.optimization.utils import das_dennis_reference_points
+from AeroOpt.optimization.moea import DecompositionBasedAlgorithm
 
 
 @pytest.fixture(scope="module")
@@ -115,18 +115,18 @@ def test_opt_nsgaiii_select_elite_from_valid(problem, optimization_settings, set
 def test_suggest_n_partitions():
     import math
 
-    assert NSGAIII._suggest_n_partitions(1, 10) == 1
+    assert DecompositionBasedAlgorithm.suggest_n_partitions(1, 10) == 1
     # M=2: n_ref = p + 1; population_size=4 -> best p = 3 (four reference directions)
-    assert NSGAIII._suggest_n_partitions(2, 4) == 3
-    assert math.comb(NSGAIII._suggest_n_partitions(2, 4) + 1, 1) == 4
+    assert DecompositionBasedAlgorithm.suggest_n_partitions(2, 4) == 3
+    assert math.comb(DecompositionBasedAlgorithm.suggest_n_partitions(2, 4) + 1, 1) == 4
 
 
 def test_das_dennis_reference_points():
-    ref = das_dennis_reference_points(1, 5)
+    ref = DecompositionBasedAlgorithm.das_dennis_reference_points(1, 5)
     assert ref.shape == (1, 1)
     assert ref[0, 0] == pytest.approx(1.0)
 
-    ref2 = das_dennis_reference_points(2, 2)
+    ref2 = DecompositionBasedAlgorithm.das_dennis_reference_points(2, 2)
     assert ref2.shape[1] == 2
     assert np.allclose(ref2.sum(axis=1), 1.0)
 

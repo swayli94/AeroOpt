@@ -227,7 +227,7 @@ class SettingsNSGAIII(object):
     ------
     `n_partitions` controls the Das-Dennis reference grid on the (M-1)-simplex.
     If omitted or null, a default is chosen from `population_size` when running
-    (see `NSGAIII._suggest_n_partitions`).
+    (see `DecompositionBasedAlgorithm.suggest_n_partitions`).
     '''
     def __init__(self, name: str,
             fname_settings: str = 'settings.json'):
@@ -281,7 +281,7 @@ class SettingsRVEA(object):
     `alpha` (APD penalty) and `adapt_freq` (reference-vector adaptation).
 
     `n_partitions` selects the Das-Dennis grid; if omitted, a default is
-    inferred from `population_size` (see `NSGAIII._suggest_n_partitions`).
+    inferred from `population_size` (see `DecompositionBasedAlgorithm.suggest_n_partitions`).
     '''
     def __init__(self, name: str,
             fname_settings: str = 'settings.json'):
@@ -338,7 +338,7 @@ class SettingsMOEAD(object):
     Uses the same SBX/PM operators as NSGA-III. Reference weights are Das–Dennis
     points on the objective simplex; ``population_size`` in ``SettingsOptimization``
     must equal the number of those points for the chosen ``n_partitions``
-    (see ``NSGAIII._suggest_n_partitions`` / combinatorial count).
+    (see ``DecompositionBasedAlgorithm.suggest_n_partitions`` / combinatorial count).
 
     If the valid archive has fewer feasible individuals than weights after the
     initial evaluation, ``OptMOEAD`` still initializes by reusing feasible

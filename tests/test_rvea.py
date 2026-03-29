@@ -15,7 +15,7 @@ from AeroOpt.optimization import (
     SettingsOptimization,
     SettingsRVEA,
 )
-from AeroOpt.optimization.utils import das_dennis_reference_points
+from AeroOpt.optimization.moea import DecompositionBasedAlgorithm
 
 
 @pytest.fixture(scope="module")
@@ -110,7 +110,7 @@ def test_opt_rvea_select_elite_from_valid(problem, optimization_settings, settin
 
 def test_build_temporary_parent_database_empty_raises(problem):
     db = Database(problem, database_type="valid")
-    state = RVEAApdState(das_dennis_reference_points(1, 1))
+    state = RVEAApdState(DecompositionBasedAlgorithm.das_dennis_reference_points(1, 1))
     with pytest.raises(ValueError, match="empty valid"):
         RVEA.build_temporary_parent_database(
             db, population_size=4, state=state, iteration=1,
@@ -120,7 +120,7 @@ def test_build_temporary_parent_database_empty_raises(problem):
 def test_generate_candidate_individuals_requires_valid_population(problem):
     db_valid = Database(problem, database_type="valid")
     db_candidate = Database(problem, database_type="population")
-    state = RVEAApdState(das_dennis_reference_points(1, 1))
+    state = RVEAApdState(DecompositionBasedAlgorithm.das_dennis_reference_points(1, 1))
     with pytest.raises(RuntimeError, match="No valid individuals"):
         RVEA.generate_candidate_individuals(
             db_valid, db_candidate, population_size=4, iteration=1,
@@ -132,8 +132,8 @@ def test_generate_candidate_individuals_builds_offspring(problem):
     random.seed(123)
     np.random.seed(123)
     n_obj = problem.n_objective
-    p = NSGAIII._suggest_n_partitions(n_obj, 4)
-    ref = das_dennis_reference_points(n_obj, p)
+    p = DecompositionBasedAlgorithm.suggest_n_partitions(n_obj, 4)
+    ref = DecompositionBasedAlgorithm.das_dennis_reference_points(n_obj, p)
     state = RVEAApdState(ref)
 
     db_valid = Database(problem, database_type="valid")
@@ -186,7 +186,7 @@ def test_environmental_selection_indices_two_objectives(problem_biobj):
             print_warning_info=False,
         )
 
-    ref = das_dennis_reference_points(2, 2)
+    ref = DecompositionBasedAlgorithm.das_dennis_reference_points(2, 2)
     state = RVEAApdState(ref)
     idx = RVEA.environmental_selection_indices(
         db, population_size=4, state=state,
@@ -205,7 +205,7 @@ def test_calc_gamma_single_reference():
 
 
 def test_apd_state_adapt_updates_V(problem_biobj):
-    ref = das_dennis_reference_points(2, 2)
+    ref = DecompositionBasedAlgorithm.das_dennis_reference_points(2, 2)
     state = RVEAApdState(ref)
     V0 = state.V.copy()
     state.ideal = np.array([0.0, 0.0])

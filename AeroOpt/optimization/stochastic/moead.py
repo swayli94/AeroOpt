@@ -18,7 +18,7 @@ References:
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 
@@ -39,7 +39,6 @@ from AeroOpt.optimization.utils import (
     sbx_crossover,
 )
 from AeroOpt.optimization.base import OptBaseFramework
-from AeroOpt.optimization.stochastic.nsgaiii import NSGAIII
 from AeroOpt.optimization.settings import (
     SettingsMOEAD,
     SettingsOptimization,
