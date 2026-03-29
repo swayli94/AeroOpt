@@ -211,9 +211,16 @@ def test_decomposed_values_tchebicheff():
     F = np.array([[1.0, 2.0], [0.5, 1.5]], dtype=float)
     w = np.array([[0.5, 0.5], [0.7, 0.3]], dtype=float)
     z = np.array([0.0, 0.0], dtype=float)
-    g = MOEAD.decomposed_values(F, w, z, "tchebicheff", 5.0)
-    assert g.shape == (2,)
+    g = DecompositionBasedAlgorithm.decomposed_values(F, w, z, "tchebicheff", 5.0)
+    assert g.shape == (2, 2)
     assert np.all(g >= 0.0)
+    np.testing.assert_allclose(
+        np.diag(g),
+        [
+            max(0.5 * 1.0, 0.5 * 2.0),
+            max(0.7 * 0.5, 0.3 * 1.5),
+        ],
+    )
 
 
 def test_ensure_state_cycles_when_fewer_valid_than_subproblems(

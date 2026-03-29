@@ -70,7 +70,7 @@ class NSGAIII(Algorithm):
     @staticmethod
     def _select_population_indices_nsgaiii(
             db: Database,
-            fronts: List[List[int]],
+            index_fronts: List[List[int]],
             population_size: int,
             ref_points: np.ndarray,
             ) -> List[int]:
@@ -84,7 +84,7 @@ class NSGAIII(Algorithm):
                 db, population_size)
 
         selected: List[int] = []
-        for front in fronts:
+        for front in index_fronts:
             if len(selected) + len(front) <= population_size:
                 selected.extend(front)
                 if len(selected) == population_size:
@@ -159,12 +159,12 @@ class NSGAIII(Algorithm):
         '''
         if combined.size <= 0:
             return []
-        fronts = DominanceBasedAlgorithm.non_dominated_ranking(combined)
+        index_fronts = DominanceBasedAlgorithm.non_dominated_ranking(combined)
         n_obj = combined.problem.n_objective
         p = max(1, int(n_partitions))
         ref_pts = DecompositionBasedAlgorithm.das_dennis_reference_points(n_obj, p)
         return NSGAIII._select_population_indices_nsgaiii(
-            combined, fronts, population_size, ref_pts)
+            combined, index_fronts, population_size, ref_pts)
 
     @staticmethod
     def build_temporary_parent_database(

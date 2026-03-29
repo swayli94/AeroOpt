@@ -1,43 +1,55 @@
-# RVEA ZDT example — notes on results vs. other algorithms
+# 多目标优化示例（ZDT 基准）
 
-This folder runs **RVEA** (Reference Vector Guided Evolutionary Algorithm) on the same ZDT benchmarks and plotting style as the **DE** and **NSGA-III** examples under `example/`.
+本目录在相同问题设置下对比多种多目标进化算法：二维目标、盒约束与圆约束，基准函数为 ZDT1–ZDT4、ZDT6。
+对应脚本：
 
-If the figure `rvea_zdt_subplots.png` looks **much worse** than e.g. `example/8-de/de_zdt_subplots.png`, that does **not** mean RVEA is “weaker in general” or that the implementation is necessarily wrong. The following points explain why.
+| 算法 | 示例脚本 |
+|------|----------|
+| NSGA-II | `example_nsgaii.py` |
+| DE（非支配排序 + 拥挤度） | `example_de.py` |
+| NSGA-III | `example_nsgaiii.py` |
+| RVEA | `example_rvea.py` |
+| MOEA/D | `example_moead.py` |
 
-## 1. “Newer” ≠ “better on every problem with the same budget”
+以下从**算法类型**、**主要特点**与**常见应用场景**概括各方法（与本仓库实现一致）。
+标准 MOEA/D、NSGA-III、RVEA 都不会先显式算出「哪些参考方向发展得差」，再专门在那些方向上筛父代。
 
-RVEA (Cheng et al., IEEE TEC 2016) is **not** designed to dominate all older algorithms on **every** multi-objective problem and **every** computational budget.
+## NSGA-II
 
-Its main motivation is **many-objective** optimization (typically **three or more** objectives), where Pareto-based ranking becomes less discriminative. RVEA uses **reference vectors** and **angle-penalized distance (APD)** to balance convergence and diversity in that regime.
+- **类型**：**基于支配（Pareto）**的多目标进化算法。
+- **特点**：快速非支配排序分层；同层内用**拥挤距离**保持目标空间分布；繁殖通常为**模拟二进制交叉（SBX）+ 多项式变异**。不依赖预先给定的参考方向，对 2～3 个目标非常成熟、易用。
+- **应用场景**：双目标/三目标工程权衡、首选基线算法；前沿形状不事先已知、希望稳定得到分布较好的近似 Pareto 集时。目标数目再增多时，纯拥挤距离对多样性的刻画会变弱，可优先考虑 NSGA-III / 参考向量类方法。
 
-The ZDT suite here is **bi-objective** (\(f_1, f_2\)). For two objectives, **NSGA-II/III, DE, and even simple scalarization** can be very competitive. There is **no** theoretical or empirical guarantee that RVEA will look best on **bi-objective ZDT** with a **short** run compared to DE.
+## DE（本示例：MODE 风格）
 
-## 2. Same computational budget as the DE example
+- **类型**：**基于支配（Pareto）**框架 + **差分进化（DE）** 变异/交叉算子（与非支配排序、拥挤度选择结合；见 `example_de.py` 说明）。
+- **特点**：搜索由差分向量驱动，对**连续变量**、非光滑或病态景观有时比固定交叉分布更鲁棒；环境选择逻辑与 NSGA-II 同类（秩 + 拥挤度），区别主要在**产生子代的方式**。
+- **应用场景**：连续参数多目标问题、实数编码为主，且经验上 GA 类交叉表现一般时；仍属中低维多目标更常见，Many-objective 时同样可考虑换 NSGA-III / RVEA 等。
 
-`example_rvea.py` and `example/8-de/example_de.py` both use shared constants from `example/examples_common.py`:
+## NSGA-III
 
-- `POPULATION_SIZE = 32`
-- `MAX_ITERATIONS = 20`
+- **类型**：**基于支配 + 参考点/参考方向**（reference-point-based），在 AeroOpt 中与 NSGA-II 同属 dominance-based 一类框架。
+- **特点**：仍用非支配排序保证收敛层次；多样性的关键落在**预定义的参考方向**上，尤其在填充最后一层前沿时，通过个体与参考方向的**关联**与**小生境计数**选人。实现中父代池由参考点截断后再做锦标赛交配。参考方向主要用在环境选择（关联、小生境、截断），父代多为截断后的池子 + 二元锦标赛等，不按「方向 (j) 的覆盖/达成是否落后」去定向选父代。
+- **应用场景**：**目标数较多（many-objective）** 时常用默认强选；需要可控、均匀的“方向覆盖”时；与 MOEA/D 相比，不显式维护“每个权重点一条标量子问题”的邻域更新，鲁棒性常更好但计算上非支配排序成本随种群增大而上升。
 
-**Twenty generations** is **very small** for ZDT problems, especially for difficult instances (e.g. **ZDT4**, **ZDT6**). Any algorithm may still be far from the true Pareto front. Differences in the plots then reflect **which search mechanism fits the landscape under this tight budget**, not a universal ranking of algorithm “age” or prestige.
+## RVEA
 
-## 3. Why RVEA can look weaker on these particular plots
+- **类型**：**参考向量 / 分解思想**（reference vector guided），环境选择采用 **APD（角度惩罚距离）**，参考向量可按目标空间尺度**自适应**。
+- **特点**：将个体关联到参考向量（角度意义的小生境）；APD 在进化过程中平衡**到理想点的距离（收敛）**与**偏离参考方向的角度（多样性）**；各目标量纲差异大时，可通过向量缩放减轻某一维主导。本仓库中繁殖为 SBX+变异，父代来自 APD 截断后的锦标赛池。APD 等用于存活/截断时在参考向量间平衡角度与距离；父代选取同样是常规锦标赛之类，没有内置「识别慢方向 → 父代偏向该 niche」的机制。
+- **应用场景**：**多目标/许多目标**，且目标**尺度不一**；希望前沿在角度意义上较均匀；需注意 APD 与进化进度相关，迭代的终止准则（代数或评估次数）应合理设定。
 
-- **Reference vectors + APD**: With \(M = 2\), the interaction between the Das–Dennis-style reference set, population size, and the **generation-dependent** APD penalty differs from dominance + crowding (NSGA-II) or **differential mutation** (DE). Under **few generations**, RVEA is not guaranteed to approach the front faster than DE.
-- **ZDT4 / ZDT6**: These are **multimodal / harder** landscapes. **Differential evolution** sometimes finds promising regions earlier than reference-vector nicheing; that is a **problem–operator match**, not proof that RVEA is inferior in general.
-- **Elite markers (red triangles)**: The script plots the **first non-dominated front** from the valid archive (`db_elite`). If feasible points are sparse or the run is short, that front can look **sparse** and **far** from the analytical ZDT front — also affected by the **constraint** \(x_1^2 + x_2^2 \le 0.64\) used in these examples.
+## MOEA/D
 
-## 4. How to get “nicer” RVEA plots (if you want)
+- **类型**：**基于分解**（decomposition-based）：每个子问题对应一条权重（参考方向），用**标量化**（如 Tchebycheff、PBI）定义单目标子问题。
+- **特点**：子代沿**权重邻域**选父代交配，评估后在**邻域内**按标量改进替换槽位，局部协作强；依赖**理想点**更新与分解形式（如 PBI 的 \(\theta\)）。本仓库要求**种群规模等于 Das–Dennis 参考点个数**。父代通常按子问题邻域在权空间里随机/均匀抽槽位（你库里的 _select_parent_slots 就是邻域池上 choice），不按「该方向标量化值是否比其他方向差」来加权。每个子问题有自己的 (\lambda)，演化是局部邻域驱动的，不是全局「找最慢方向再重点交配」。
+- **应用场景**：2～3 目标上子问题意义清晰、邻域结构匹配问题难度时效果很好；经典 MOEA/D 在极高维目标上可能不如 NSGA-III/RVEA 省心，且需核对种群与分区设置是否一致。
 
-- Increase **`max_iterations`** in the generated `settings.json` block (e.g. hundreds of generations) and re-run.
-- Check that **population size** and **reference directions** are consistent (for bi-objective problems, the number of reference points and `population_size` should be chosen coherently).
-- Compare RVEA with other methods on **three or more objectives**, where RVEA’s design target is more representative.
+## 如何选择（简表）
 
-## 5. One-sentence summary
-
-**RVEA is not a universal upgrade over DE (or others) on every bi-objective ZDT instance with a 20-generation budget;** seeing better DE figures under this setup is **expected** and reflects **objective count, operator mechanics, and budget** — not necessarily a bug in RVEA.
-
-## References
-
-- R. Cheng, Y. Jin, M. Olhofer, and B. Sendhoff, “A reference vector guided evolutionary algorithm for many-objective optimization,” *IEEE Trans. Evol. Comput.*, 2016.
-- Run the example: `python example_rvea.py` (from this directory, with project root on `PYTHONPATH` as in other examples).
+| 目标数/情境 | 可优先尝试 |
+|-------------|------------|
+| 2～3 目标，通用基线 | NSGA-II |
+| 连续变量、希望差分搜索 | DE（本目录 MODE 风格） |
+| 目标较多、要参考方向均匀性 | NSGA-III |
+| 多目标且尺度差异大、角度均匀 | RVEA |
+| 强调显式标量化与邻域协作 | MOEA/D |

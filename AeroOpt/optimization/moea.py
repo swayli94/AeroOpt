@@ -1,8 +1,8 @@
 '''
 Class for multi-objective evolutionary algorithms.
 
-- Dominance-based (Pareto-based) algorithms, e.g., NSGA-II, NSGA-III, NSDE, SPEA2, GDE3, etc.
-- Decomposition-based algorithms, e.g., MOEA/D, RVEA, etc.
+- Dominance-based (Pareto-based) algorithms, e.g., NSGA-II, NSGA-III, RVEA, etc.
+- Decomposition-based algorithms, e.g., MOEA/D, etc.
 - Indicator-based algorithms, e.g., SMS-EMOA, IBEA, etc.
 - Approximation-guided algorithms, e.g., AGE-MOEA, etc.
 '''
@@ -10,7 +10,7 @@ Class for multi-objective evolutionary algorithms.
 import math
 import copy
 from abc import ABC, abstractmethod
-from typing import Any, List
+from typing import Any, List, Optional, Tuple
 import numpy as np
 from AeroOpt.core import Database
 
@@ -118,7 +118,7 @@ class Algorithm(ABC):
 class DominanceBasedAlgorithm(object):
     '''
     Dominance-based (Pareto-based) multi-objective evolutionary algorithms,
-    e.g., NSGA-II, NSGA-III, NSDE, SPEA2, GDE3, etc.
+    e.g., NSGA-II, NSGA-III, RVEA, NSDE, SPEA2, GDE3, etc.
 
     This class provides:
     - Pareto non-dominated ranking.
@@ -406,7 +406,10 @@ class DominanceBasedAlgorithm(object):
 class DecompositionBasedAlgorithm(object):
     '''
     Decomposition-based multi-objective evolutionary algorithms,
-    e.g., MOEA/D, RVEA, etc.
+    e.g., MOEA/D, etc.
+    
+    Note that other algorithms, such as NSGA-III, RVEA,
+    also use this class for reference points generation.
     '''
     @staticmethod
     def suggest_n_partitions(n_objective: int, population_size: int) -> int:
@@ -421,8 +424,8 @@ class DecompositionBasedAlgorithm(object):
         # Upper search bound: bi-objective needs p ≈ pop-1; many-objective uses smaller p.
         hi = max(41, pop + 25)
         for p in range(1, hi):
-            n_ref = math.comb(p + n_objective - 1, n_objective - 1)
-            d = abs(n_ref - pop)
+            n_partitions = math.comb(p + n_objective - 1, n_objective - 1)
+            d = abs(n_partitions - pop)
             if d < best_d:
                 best_d, best_p = d, p
         return max(1, best_p)
@@ -430,7 +433,20 @@ class DecompositionBasedAlgorithm(object):
     @staticmethod
     def das_dennis_reference_points(n_objective: int, n_partitions: int) -> np.ndarray:
         '''
-        Das-Dennis reference points on the (n_objective-1)-simplex, shape [n_ref, n_objective].
+        Das-Dennis reference points on the (n_objective-1)-simplex.
+        
+        Parameters:
+        -----------
+        n_objective: int
+            Number of objectives.
+        n_partitions: int
+            Number of reference points (subproblems).
+            
+        Returns:
+        --------
+        ref_points: np.ndarray [n_partitions, n_objective]
+            Das-Dennis reference points (weight vectors) on the (n_objective-1)-simplex.
+            Each row is a weight vector, sum of the row is 1.
         '''
         if n_objective <= 0:
             return np.zeros((0, 0))
@@ -448,3 +464,282 @@ class DecompositionBasedAlgorithm(object):
 
         rec(n_partitions, n_objective - 1, [])
         return np.asarray(out, dtype=float) / float(n_partitions)
+
+    @staticmethod
+    def default_decomposition_name(n_objective: int) -> str:
+        '''
+        Default decomposition method:
+        - Tchebycheff for <=2 objectives,
+        - PBI for >2 objectives.
+        '''
+        return 'tchebicheff' if int(n_objective) <= 2 else 'pbi'
+
+    @staticmethod
+    def decomposed_values(ys: np.ndarray, weights: np.ndarray,
+            ideal: np.ndarray, method: str, pbi_theta: float = 5.0) -> np.ndarray:
+        '''
+        Compute scalarized objective values for MOEA/D subproblems.
+
+        In MOEA/D, each subproblem is defined by a reference direction (weight vector).
+        Return values form a matrix of size `(n_points, n_weights)`: entry `(i, j)`
+        is the scalarization of point `i` under weight `j` (smaller is better).
+
+        Two decomposition methods are supported:
+
+        1. Tchebycheff:
+            
+            Emphasizes the worst (most deviated) objective.
+            This promotes balanced improvement across objectives and is commonly used
+            for low-dimensional objective spaces.
+
+        2. Penalty-based Boundary Intersection (PBI):
+        
+            Decomposes the objective vector into:
+            d1: distance along the reference direction (convergence).
+            d2: perpendicular distance to the direction (diversity).
+
+            The scalar value is a combination of the convergence and diversity,
+            where `pbi_theta` controls the trade-off between convergence and diversity.
+            This method is more suitable for higher-dimensional objective spaces.
+
+        Parameters
+        ----------
+        ys : np.ndarray [n_points, n_objective]
+            Unified scaled objective values of candidate solutions.
+            A single point may be given as shape `(n_objective,)`.
+        weights : np.ndarray [n_weights, n_objective]
+            Reference directions (weight vectors).
+            A single weight may be given as shape `(n_objective,)`.
+        ideal : np.ndarray [n_objective]
+            Scaled ideal point (best observed value for each objective).
+        method : str
+            Decomposition method to use: 'tchebicheff' or 'pbi'.
+        pbi_theta : float
+            Penalty parameter for PBI, controlling the balance between
+            convergence (d1) and diversity (d2).
+
+        Returns
+        -------
+        scalars : np.ndarray [n_points, n_weights]
+            `scalars[i, j]` is the value for `ys[i]` under `weights[j]`.
+            When `n_points == n_weights` and row `i` uses weight `i` (neighbor
+            alignment in MOEA/D), take `np.diag(scalars)`.
+
+        Notes
+        -----
+        One objective row or one weight row can be passed as 1D; they are promoted
+        with `numpy.atleast_2d` to shapes `(1, n_objective)` / `(1, n_objective)`.
+        '''
+        ys = np.atleast_2d(np.asarray(ys, dtype=float))
+        weights = np.atleast_2d(np.asarray(weights, dtype=float))
+        ideal = np.asarray(ideal, dtype=float).reshape(-1)
+
+        if ys.ndim != 2 or weights.ndim != 2:
+            raise ValueError('ys and weights must be 1D or 2D arrays.')
+        _, m_y = ys.shape
+        _, m_w = weights.shape
+        if m_y != m_w:
+            raise ValueError(
+                f'Objective dimension mismatch: ys has {m_y}, weights has {m_w}.')
+        if ideal.shape[0] != m_y:
+            raise ValueError(
+                f'ideal length {ideal.shape[0]} != n_objective {m_y}.')
+
+        lam_n = np.maximum(weights, 1.0e-32)
+        row_norm = np.linalg.norm(lam_n, axis=1, keepdims=True)
+        row_norm = np.maximum(row_norm, 1.0e-32)
+        lam_unit = lam_n / row_norm
+
+        diff = ys - ideal[None, :]
+        diff_exp = diff[:, None, :]
+        lam_n_exp = lam_n[None, :, :]
+
+        if method == 'tchebicheff':
+            return np.max(lam_n_exp * np.abs(diff_exp), axis=2)
+
+        if method == 'pbi':
+            lam_u_exp = lam_unit[None, :, :]
+            d1 = np.sum(diff_exp * lam_u_exp, axis=2)
+            d1 = np.maximum(d1, 0.0)
+            norm_l = np.linalg.norm(lam_unit, axis=1)
+            norm_l = np.maximum(norm_l, 1.0e-32)
+            proj = (d1 / norm_l[None, :])[:, :, None] * lam_unit[None, :, :]
+            d2 = np.linalg.norm(diff_exp - proj, axis=2)
+            return d1 + float(pbi_theta) * d2
+
+        raise ValueError(f'Unknown decomposition method: {method}')
+
+    @staticmethod
+    def _pareto_first_front_mask(ys: np.ndarray) -> np.ndarray:
+        '''
+        First non-dominated front for minimization, same point set as
+        `DominanceBasedAlgorithm.non_dominated_ranking` front 0.
+        '''
+        ys = np.asarray(ys, dtype=float)
+        n = ys.shape[0]
+        if n == 0:
+            return np.zeros(0, dtype=bool)
+        dominated = np.zeros(n, dtype=bool)
+        for i in range(n):
+            if dominated[i]:
+                continue
+            le = np.all(ys <= ys[i], axis=1)
+            st = np.any(ys < ys[i], axis=1)
+            dominates_i = le & st
+            dominates_i[i] = False
+            if np.any(dominates_i):
+                dominated[i] = True
+        return ~dominated
+
+    @staticmethod
+    def reference_direction_progress(
+            ys: np.ndarray,
+            n_partitions: int,
+            pareto_front_only: bool = True,
+            decomposition: str = 'auto',
+            pbi_theta: float = 5.0,
+            ideal: Optional[np.ndarray] = None,
+            ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        '''
+        For each Das-Dennis reference direction `lambda_j`, compute the best
+        (minimum) MOEA/D-style scalarization :math:`g(f\\mid\\lambda_j, z^*)`
+        achieved on the analyzed objective rows. **Larger** best values mean
+        no analyzed point approaches :math:`z^*` well along that preference
+        direction --- a comparatively **slow** or **lagging** direction on the
+        current (approximate) Pareto front.
+
+        This is intended for **post-hoc analysis** of any non-dominated set,
+        not for algorithm-internal selection.
+
+        Parameters
+        ----------
+        ys : np.ndarray [n_points, n_objective]
+            Unified scaled objective matrix for minimization.
+        n_partitions : int
+            Simplex partition count for `das_dennis_reference_points`.
+        pareto_front_only : bool
+            If True, evaluate the progress on the first non-dominated front of `ys`.
+        decomposition : {'auto', 'tchebicheff', 'pbi'}
+            Scalarization; `'auto'` uses Tchebycheff for `n_objective <= 2`
+            else PBI (same default spirit as MOEA/D in this project).
+        pbi_theta : float
+            PBI penalty parameter when using `decomposition='pbi'`.
+        ideal : np.ndarray [n_objective]
+            Scaled ideal point `z_star` for scalarization.
+            If omitted, use the component-wise minimum of the analyzed rows.
+
+        Returns
+        -------
+        ordered_ref_indices : np.ndarray [n_partitions]
+            Indices `j` into rows of `reference_points`, **slowest first**
+            (descending `best_achievement`).
+        best_achievement : np.ndarray [n_partitions]
+            Per-direction best scalar :math:`\\min_i g(f_i\\mid\\lambda_j)`,
+            aligned with `reference_points`.
+        reference_points : np.ndarray [n_partitions, n_objective]
+            Das-Dennis reference points.
+        '''
+        ys = np.asarray(ys, dtype=float)
+        if ys.ndim != 2 or ys.shape[0] == 0:
+            return (
+                np.array([], dtype=int),
+                np.array([]),
+                np.zeros((0, 0), dtype=float),
+            )
+        n_obj = ys.shape[1]
+        if n_obj < 2:
+            ref = DecompositionBasedAlgorithm.das_dennis_reference_points(1, n_partitions)
+            return (
+                np.array([0], dtype=int),
+                np.zeros(1, dtype=float),
+                ref,
+            )
+
+        if pareto_front_only:
+            mask = DecompositionBasedAlgorithm._pareto_first_front_mask(ys)
+            ys_work = ys[mask]
+        else:
+            ys_work = ys
+
+        if ys_work.shape[0] == 0:
+            ref = DecompositionBasedAlgorithm.das_dennis_reference_points(n_obj, n_partitions)
+            return (
+                np.arange(ref.shape[0], dtype=int),
+                np.full(ref.shape[0], np.nan),
+                ref,
+            )
+
+        if ideal is None:
+            z_star = ys_work.min(axis=0).astype(float)
+        else:
+            z_star = np.asarray(ideal, dtype=float).reshape(-1)
+            if z_star.shape[0] != n_obj:
+                raise ValueError(
+                    f'ideal length {z_star.shape[0]} != n_objective {n_obj}')
+
+        dec = decomposition
+        if dec == 'auto':
+            dec = DecompositionBasedAlgorithm.default_decomposition_name(n_obj)
+        if dec not in ('tchebicheff', 'pbi'):
+            raise ValueError(
+                f"decomposition must be 'auto', 'tchebicheff', or 'pbi', got {dec!r}")
+
+        ref = DecompositionBasedAlgorithm.das_dennis_reference_points(
+            n_obj, n_partitions)
+        g_mat = DecompositionBasedAlgorithm.decomposed_values(
+            ys_work, ref, z_star, dec, float(pbi_theta)) # [n_points, n_partitions]
+        best_g = np.min(g_mat, axis=0) # [n_partitions]
+
+        ordered = np.argsort(-best_g, kind='stable')
+        return ordered, best_g, ref
+
+    @staticmethod
+    def find_slow_directions(
+            db: Database,
+            n_partitions: int,
+            pareto_front_only: bool = True,
+            decomposition: str = 'auto',
+            pbi_theta: float = 5.0,
+            ideal: Optional[np.ndarray] = None,
+            ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        '''
+        Same analysis as `reference_direction_progress`, using objectives
+        from `db`.
+
+        Parameters
+        ----------
+        db : Database
+            Database with valid unified scaled objectives (`get_unified_objectives`).
+        n_partitions : int
+            Number of reference points (subproblems).
+        pareto_front_only : bool
+            If True, evaluate the progress on the first non-dominated front of `ys`.
+        decomposition, pbi_theta, ideal
+            Passed through to `reference_direction_progress`.
+
+        Returns
+        -------
+        ordered_ref_indices : np.ndarray [n_partitions]
+            Slowest directions first (same as `reference_direction_progress`).
+        best_achievement : np.ndarray [n_partitions]
+            Per-direction best scalarized value on the analyzed set.
+        reference_points : np.ndarray [n_partitions, n_objective]
+            Das-Dennis reference points (weight vectors) on the (n_objective-1)-simplex.
+            Each row is a weight vector, sum of the row is 1.
+        '''
+        ys = db.get_unified_objectives(scale=True)
+        if ys.size == 0 or ys.shape[1] < 1:
+            return (
+                np.array([], dtype=int),
+                np.array([]),
+                np.zeros((0, max(1, db.problem.n_objective)), dtype=float),
+            )
+        return DecompositionBasedAlgorithm.reference_direction_progress(
+            ys,
+            n_partitions,
+            pareto_front_only=pareto_front_only,
+            decomposition=decomposition,
+            pbi_theta=pbi_theta,
+            ideal=ideal,
+        )
+

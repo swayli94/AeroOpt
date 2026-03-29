@@ -365,7 +365,8 @@ class OptRVEA(OptBaseFramework):
         n_obj = self.problem.n_objective
         p = self.algorithm_settings.n_partitions
         if p is None:
-            p = DecompositionBasedAlgorithm.suggest_n_partitions(n_obj, self.population_size)
+            p = DecompositionBasedAlgorithm.suggest_n_partitions(
+                    n_obj, self.population_size)
         ref_pts = DecompositionBasedAlgorithm.das_dennis_reference_points(n_obj, p)
         self._apd_state = RVEAApdState(ref_pts)
 

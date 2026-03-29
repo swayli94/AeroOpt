@@ -230,89 +230,6 @@ class MOEAD(Algorithm):
         return np.argsort(dist, axis=1, kind='stable')[:, :t]
 
     @staticmethod
-    def default_decomposition_name(n_objective: int) -> str:
-        '''
-        Default decomposition method:
-        - Tchebycheff for <=2 objectives,
-        - PBI for >2 objectives.
-        '''
-        return 'tchebicheff' if int(n_objective) <= 2 else 'pbi'
-
-    @staticmethod
-    def decomposed_values(ys: np.ndarray, weights: np.ndarray,
-            ideal: np.ndarray, method: str, pbi_theta: float) -> np.ndarray:
-        '''
-        Compute scalarized objective values for MOEA/D subproblems.
-
-        In MOEA/D, each subproblem is defined by a reference direction (weight vector).
-        Since solutions have multiple objectives, this function converts (decomposes)
-        each multi-objective vector into a single scalar value according to the chosen
-        decomposition method. These scalar values are then used to compare solutions
-        and perform neighborhood-based updates (smaller is better).
-
-        Two decomposition methods are supported:
-
-        1. Tchebycheff (tchebicheff):
-            
-            Emphasizes the worst (most deviated) objective.
-            This promotes balanced improvement across objectives and is commonly used
-            for low-dimensional objective spaces.
-
-        2. Penalty-based Boundary Intersection (PBI):
-        
-            Decomposes the objective vector into:
-            d1: distance along the reference direction (convergence).
-            d2: perpendicular distance to the direction (diversity).
-
-            The scalar value is a combination of the convergence and diversity,
-            where `pbi_theta` controls the trade-off between convergence and diversity.
-            This method is more suitable for higher-dimensional objective spaces.
-
-        Parameters
-        ----------
-        ys : np.ndarray [n_solutions, n_objectives]
-            Objective values of candidate solutions.
-        weights : np.ndarray [n_subproblems, n_objectives]
-            Reference directions (weight vectors), each corresponding to a subproblem.
-        ideal : np.ndarray [n_objectives]
-            Ideal point (best observed value for each objective).
-        method : str
-            Decomposition method to use: 'tchebicheff' or 'pbi'.
-        pbi_theta : float
-            Penalty parameter for PBI, controlling the balance between
-            convergence (d1) and diversity (d2).
-
-        Returns
-        -------
-        scalars: np.ndarray [n_solutions]
-            Scalar decomposition values for each solution.
-            Lower values indicate better performance under the corresponding subproblem.
-        '''
-        ys = np.asarray(ys, dtype=float)
-        weights = np.asarray(weights, dtype=float)
-        ideal = np.asarray(ideal, dtype=float)
-        lam_n = np.maximum(weights, 1.0e-32)
-        row_norm = np.linalg.norm(lam_n, axis=1, keepdims=True)
-        row_norm = np.maximum(row_norm, 1.0e-32)
-        lam_unit = lam_n / row_norm
-
-        diff = ys - ideal[None, :]
-
-        if method == 'tchebicheff':
-            return np.max(lam_n * np.abs(diff), axis=1)
-
-        if method == 'pbi':
-            d1 = np.sum(diff * lam_unit, axis=1)
-            d1 = np.maximum(d1, 0.0)
-            norm_l = np.linalg.norm(lam_unit, axis=1)
-            norm_l = np.maximum(norm_l, 1.0e-32)
-            proj = (d1 / norm_l)[:, None] * lam_unit
-            d2 = np.linalg.norm(diff - proj, axis=1)
-            return d1 + float(pbi_theta) * d2
-
-        raise ValueError(f'Unknown decomposition method: {method}')
-
-    @staticmethod
     def update_ideal(ideal: np.ndarray, ys_row: np.ndarray) -> np.ndarray:
         '''
         Update ideal point using one (scaled) objective row.
@@ -375,7 +292,7 @@ class OptMOEAD(OptBaseFramework):
 
         dec = self.algorithm_settings.decomposition
         if dec == 'auto':
-            dec = MOEAD.default_decomposition_name(n_obj)
+            dec = DecompositionBasedAlgorithm.default_decomposition_name(n_obj)
         if dec not in ('tchebicheff', 'pbi'):
             raise ValueError(
                 f"decomposition must be 'auto', 'tchebicheff', or 'pbi', got {dec!r}")
@@ -452,10 +369,12 @@ class OptMOEAD(OptBaseFramework):
         F_off = self.db_valid.get_unified_objectives(scale=True, index_list=[oidx])
         w_nei = self._ref_dirs[Nloc, :]
 
-        fv_nei = MOEAD.decomposed_values(
+        g_nei = DecompositionBasedAlgorithm.decomposed_values(
             F_nei, w_nei, self._ideal, self._decomposition, self.algorithm_settings.pbi_theta)
-        fv_off = MOEAD.decomposed_values(
+        fv_nei = np.asarray(np.diag(g_nei), dtype=float)
+        g_off = DecompositionBasedAlgorithm.decomposed_values(
             F_off, w_nei, self._ideal, self._decomposition, self.algorithm_settings.pbi_theta)
+        fv_off = np.asarray(g_off[0, :], dtype=float)
 
         better = np.where(fv_off < fv_nei)[0]
         for j in better:
