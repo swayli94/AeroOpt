@@ -102,7 +102,9 @@ def test_select_parent_indices_respects_crowding():
 
     db = type("Db", (), {})()
     db.individuals = [_Indi(0.1), _Indi(0.5), _Indi(0.2)]
-    db._index_pareto_fronts = [[0, 1, 2]]
+    fronts = [[0, 1, 2]]
+    db._index_pareto_fronts = fronts
+    db.index_pareto_fronts = fronts  # matches Database property used by moea
     out = DominanceBasedAlgorithm.select_parent_indices(db, n_select=2)
     assert set(out) == {1, 2}
 

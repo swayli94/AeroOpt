@@ -4,6 +4,7 @@ Base framework for optimization.
 import os
 import numpy as np
 import time
+from abc import ABC, abstractmethod
 
 from typing import List, Callable, Tuple
 
@@ -16,7 +17,7 @@ from AeroOpt.optimization.settings import SettingsOptimization
 from AeroOpt.analysis.analyze_database import AnalyzeDatabase
 
 
-class OptBaseFramework(object):
+class OptBaseFramework(ABC):
     '''
     Base framework for optimization.
     
@@ -29,6 +30,10 @@ class OptBaseFramework(object):
     user_func: Callable
         User-defined function to evaluate the individuals.
         If None, use external evaluation script.
+    user_func_supports_parallel: bool
+        If True, the user-defined function inherently supports parallel evaluation,
+        i.e., `list_succeed, ys = user_func(xs, **kwargs)` can be directly called in this function.
+        If False, either use `mp_evaluation` for parallel evaluation, or use serial evaluation.
     mp_evaluation: MultiProcessEvaluation
         Multi-process evaluation object defined in the entrance of the entire program.
         If None, use serial evaluation.
@@ -66,15 +71,18 @@ class OptBaseFramework(object):
     def __init__(self, problem: Problem,
             optimization_settings: SettingsOptimization,
             user_func: Callable = None,
-            mp_evaluation: MultiProcessEvaluation = None):
+            user_func_supports_parallel: bool = False,
+            mp_evaluation: MultiProcessEvaluation = None,
+            logging: bool = True):
         
         self.problem = problem
         self.optimization_settings = optimization_settings
 
         self.user_func : Callable = user_func
         self.mp_evaluation : MultiProcessEvaluation = mp_evaluation
-        
+        self.user_func_supports_parallel : bool = user_func_supports_parallel
         self.iteration : int = 0
+        self.logging : bool = logging
         
         # Processing objects manually defined in the main program.
         self.pre_process : 'PreProcess' = None
@@ -98,9 +106,9 @@ class OptBaseFramework(object):
         # Attributes
         self._start_time = time.perf_counter()
         
-        init_log(self.dir_summary, self.fname_log)
-        
-        self.log(f'Optimization [{self.name}] initialized.', level=0, prefix='=== ')
+        if self.logging:
+            init_log(self.dir_summary, self.fname_log)
+            self.log(f'Optimization [{self.name}] initialized.', level=0, prefix='=== ')
         
     @property
     def population_size(self) -> int:
@@ -170,6 +178,19 @@ class OptBaseFramework(object):
         if self.db_total.size <= 0:
             return 0
         return int(np.max(self.db_total._id_list))
+
+    def initialize(self) -> None:
+        '''
+        Initialize the optimization to start a new optimization.
+        '''
+        self.db_total.empty_database()
+        self.db_valid.empty_database()
+        self.db_elite.empty_database()
+        self.db_candidate.empty_database()
+        self.iteration = 0
+        self._start_time = time.perf_counter()
+        
+        self.log(f'Optimization [{self.name}] initialized.', level=0, prefix='=== ')
 
     #* Main procedures
     
@@ -266,8 +287,12 @@ class OptBaseFramework(object):
         - can be adapted to other methods, e.g., Design of Experiments, perturbation, user-defined, etc.
         - the initial individuals are stored in `db_candidate` database.
         '''
-        xs = np.random.rand(self.population_size, self.problem.n_input)
-        xs = self.problem.scale_x(xs, reverse=True)
+        # xs = np.random.rand(self.population_size, self.problem.n_input)
+        # xs = self.problem.scale_x(xs, reverse=True)
+        
+        xs = self.problem.latin_hypercube_sampling(self.population_size,
+                                    scaled_values=False,
+                                    sample_variables=None)
         
         self.db_candidate.empty_database()
         for x in xs:
@@ -293,7 +318,7 @@ class OptBaseFramework(object):
         '''
         return None
     
-    #! Needs to be implemented
+    @abstractmethod
     def generate_candidate_individuals(self) -> None:
         '''
         Generate candidate individuals during the optimization,
@@ -305,7 +330,7 @@ class OptBaseFramework(object):
         - add user-defined new individuals
         - search new candidates from surrogate models
         '''
-        raise NotImplementedError('Not implemented.')
+        pass
 
     def evaluate_db_candidate(self) -> None:
         '''
@@ -315,7 +340,8 @@ class OptBaseFramework(object):
         t0 = time.perf_counter()
         
         self.db_candidate.evaluate_individuals(mp_evaluation=self.mp_evaluation,
-                                            user_func=self.user_func)
+                                user_func=self.user_func,
+                                user_func_supports_parallel=self.user_func_supports_parallel)
 
         t1 = time.perf_counter()
         self.log(f'Evaluation of {self.db_candidate.size} candidates finished in {(t1-t0)/60.0:.2f} min.', level=1)
@@ -347,10 +373,12 @@ class OptBaseFramework(object):
         n_added_total = self.db_total.size - n_previous_total
         n_added_valid = self.db_valid.size - n_previous_valid
         
-        self.log(f'Add {n_added_total} individuals to total, updated to {self.db_total.size}.', level=1)
-        self.log(f'Add {n_added_valid} individuals to valid, updated to {self.db_valid.size}.', level=1)
+        self.log(f'Add {n_added_total} individuals to total, updated to {self.db_total.size}.',
+                    level=1, prefix='    ')
+        self.log(f'Add {n_added_valid} individuals to valid, updated to {self.db_valid.size}.',
+                    level=1, prefix='    ')
 
-    #! Needs to be implemented
+    @abstractmethod
     def select_elite_from_valid(self) -> None:
         '''
         Select elite individuals from the valid database:
@@ -359,7 +387,7 @@ class OptBaseFramework(object):
         - Crowding-distance assignment (e.g., NSGA-II)
         - other selection methods (e.g., RVEA, MOEA/D, etc.)
         '''
-        raise NotImplementedError('Not implemented.')
+        pass
 
     #* Support functions
 
@@ -367,6 +395,9 @@ class OptBaseFramework(object):
         '''
         Log a message to the log file.
         '''
+        if not self.logging:
+            return
+        
         log(text, prefix=prefix, fname=self.fname_log,
                 print_on_screen=(level<=self.level))
 
@@ -379,7 +410,7 @@ class OptBaseFramework(object):
             self.db_candidate.individuals[i].ID = id_max + i
 
 
-class PreProcess(object):
+class PreProcess(ABC):
     '''
     Pre-processing of `db_candidate` database in each iteration.
     
@@ -397,12 +428,13 @@ class PreProcess(object):
         
         self.pre_process_folder : str = 'PreProcess'
         
+    @abstractmethod
     def apply(self) -> None:
         '''
         Apply the pre-processing to the `db_candidate` database.
         '''
         self.opt.log(f'Pre-processing of {self.opt.db_candidate.size} candidates started.', level=1)
-        raise NotImplementedError('Pre-processing is not implemented.')
+        pass
     
     def _restrict_x_values_by_valid_database(self, xs: np.ndarray,
                         min_scaled_distance: float = 0.0,
@@ -599,12 +631,12 @@ class PreProcess(object):
         return xs_new
         
 
-class PostProcess(object):
+class PostProcess(ABC):
     '''
-    Post-processing of `db_total`, `db_valid` databases in each iteration.
+    Post-processing of `db_total` databases in each iteration.
     
     The databases are accessed through the `OptBaseFramework` object, `opt`.
-    The `db_total` and `db_valid` databases are modified in place.
+    The `db_total` databases are modified in place.
     
     Parameters:
     -----------
@@ -615,10 +647,12 @@ class PostProcess(object):
 
         self.opt = opt
 
+    @abstractmethod
     def apply(self) -> None:
         '''
-        Apply the post-processing to the `db_total` and `db_valid` databases.
+        Apply the post-processing to the `db_total` databases.
         '''
-        raise NotImplementedError('Post-processing is not implemented.')
+        self.opt.log(f'Post-processing of {self.opt.db_total.size} individuals in the total database started.', level=1)
+        pass
 
 

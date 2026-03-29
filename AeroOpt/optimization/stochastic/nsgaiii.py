@@ -278,15 +278,20 @@ class OptNSGAIII(OptBaseFramework):
             optimization_settings: SettingsOptimization,
             algorithm_settings: SettingsNSGAIII,
             user_func=None,
+            user_func_supports_parallel: bool = False,
             mp_evaluation: MultiProcessEvaluation = None,
             rng: np.random.Generator = None,
+            logging: bool = True,
             ):
 
         super().__init__(
             problem=problem,
             optimization_settings=optimization_settings,
             user_func=user_func,
-            mp_evaluation=mp_evaluation)
+            user_func_supports_parallel=user_func_supports_parallel,
+            mp_evaluation=mp_evaluation,
+            logging=logging,
+        )
         
         self.algorithm_settings = algorithm_settings
         self.rng = rng

@@ -57,7 +57,7 @@ def test_generate_candidate_individuals_requires_valid_population(problem):
             population_size=4,
             iteration=1,
             scale_factor=0.5,
-            cross_prob=0.9,
+            cross_rate=0.9,
             rng=np.random.default_rng(1),
         )
 
@@ -81,7 +81,7 @@ def test_generate_candidate_individuals_builds_trials(problem):
         population_size=4,
         iteration=3,
         scale_factor=0.5,
-        cross_prob=0.9,
+        cross_rate=0.9,
         rng=rng,
     )
     assert db_candidate.size == 4

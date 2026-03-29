@@ -105,8 +105,8 @@ def build_settings_file(settings_path: Path, work_dir: Path) -> None:
         "soo_de_alg": {
             "type": "SettingsDE",
             "name": "soo_de_alg",
-            "scale_factor": 0.5,
-            "cross_prob": 0.8,
+            "scale_factor": 0.3,
+            "cross_rate": 0.8,
         },
         "soo_nrbo_alg": {
             "type": "SettingsNRBO",

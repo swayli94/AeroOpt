@@ -36,7 +36,7 @@ class DiffEvolution(Algorithm):
             population_size: int,
             iteration: int,
             scale_factor: float,
-            cross_prob: float,
+            cross_rate: float,
             rng: np.random.Generator = None,
             ) -> None:
         '''
@@ -66,7 +66,7 @@ class DiffEvolution(Algorithm):
             x2 = temp_parents.individuals[r2].x
             mutant = x0 + scale_factor * (x1 - x2)
             trial_x = binomial_crossover(
-                x_t, mutant, cross_prob, rng)
+                x_t, mutant, cross_rate, rng)
             problem.apply_bounds_x(trial_x)
 
             indi = Individual(problem=problem, x=trial_x)
@@ -110,13 +110,17 @@ class OptDE(OptBaseFramework):
             algorithm_settings: SettingsDE,
             user_func: Callable = None,
             mp_evaluation: MultiProcessEvaluation = None,
+            user_func_supports_parallel: bool = False,
             rng: np.random.Generator = None,
+            logging: bool = True,
             ):
         super().__init__(
             problem=problem,
             optimization_settings=optimization_settings,
             user_func=user_func,
+            user_func_supports_parallel=user_func_supports_parallel,
             mp_evaluation=mp_evaluation,
+            logging=logging,
         )
         self.algorithm_settings = algorithm_settings
         self.rng = rng
@@ -131,7 +135,7 @@ class OptDE(OptBaseFramework):
             population_size=self.population_size,
             iteration=self.iteration,
             scale_factor=self.algorithm_settings.scale_factor,
-            cross_prob=self.algorithm_settings.cross_prob,
+            cross_rate=self.algorithm_settings.cross_rate,
             rng=self.rng,
         )
         

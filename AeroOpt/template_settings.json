@@ -82,7 +82,7 @@
         "type": "SettingsDE",
         "name": "default",
         "scale_factor": 0.5,
-        "cross_prob": 0.9
+        "cross_rate": 0.9
     },
     "example_SettingsNRBO": {
         "type": "SettingsNRBO",

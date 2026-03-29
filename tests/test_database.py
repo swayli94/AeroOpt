@@ -202,3 +202,58 @@ class TestDatabaseEvaluateIndividuals:
         _append_direct(db, indi)
         with pytest.raises(ValueError, match="ID is None"):
             db.evaluate_individuals(mp_evaluation=None, user_func=lambda x: (True, np.array([0.0])))
+
+    def test_evaluate_individuals_parallel_user_func_matrix(self, problem):
+        def user_func_batch(xs):
+            assert xs.ndim == 2
+            assert xs.shape[1] == problem.n_input
+            n = xs.shape[0]
+            ys = (xs[:, 0:1] * 2.0)
+            return [True] * n, ys
+
+        db = Database(problem, database_type="total")
+        db.add_individual(_indi(problem, 0.1, None, ID=1), check_duplication=False)
+        db.add_individual(_indi(problem, 0.4, None, ID=2), check_duplication=False)
+
+        db.evaluate_individuals(
+            mp_evaluation=None,
+            user_func=user_func_batch,
+            user_func_supports_parallel=True,
+        )
+        np.testing.assert_allclose(db.individuals[0].y, [0.2])
+        np.testing.assert_allclose(db.individuals[1].y, [0.8])
+        assert all(indi.valid_evaluation for indi in db.individuals)
+
+    def test_evaluate_individuals_parallel_user_func_wrong_ys_shape_raises(self, problem):
+        def user_func_bad(xs):
+            n = xs.shape[0]
+            return [True] * n, np.zeros((n, problem.n_output + 1))
+
+        db = Database(problem, database_type="total")
+        db.add_individual(_indi(problem, 0.2, None, ID=1), check_duplication=False)
+        with pytest.raises(ValueError, match="Invalid ys shape"):
+            db.evaluate_individuals(
+                mp_evaluation=None,
+                user_func=user_func_bad,
+                user_func_supports_parallel=True,
+            )
+
+    def test_evaluate_individuals_parallel_user_func_partial_failure(self, problem):
+        def user_func_mixed(xs):
+            n = xs.shape[0]
+            ys = np.ones((n, problem.n_output))
+            return [True, False], ys
+
+        db = Database(problem, database_type="total")
+        db.add_individual(_indi(problem, 0.1, None, ID=1), check_duplication=False)
+        db.add_individual(_indi(problem, 0.2, None, ID=2), check_duplication=False)
+
+        db.evaluate_individuals(
+            mp_evaluation=None,
+            user_func=user_func_mixed,
+            user_func_supports_parallel=True,
+        )
+        assert db.individuals[0].valid_evaluation is True
+        np.testing.assert_allclose(db.individuals[0].y, [1.0])
+        assert db.individuals[1].valid_evaluation is False
+        assert db.individuals[1].y is None

@@ -140,7 +140,7 @@ class SettingsDE(object):
 
         self.name = name
         self.scale_factor: float = 0.5
-        self.cross_prob: float = 0.9
+        self.cross_rate: float = 0.8
 
         self.read_settings(fname_settings)
 
@@ -164,7 +164,7 @@ class SettingsDE(object):
             raise ValueError(f'SettingsDE {self.name} not found in {fname_settings}.')
 
         self.scale_factor = float(settings_de['scale_factor'])
-        self.cross_prob = float(settings_de['cross_prob'])
+        self.cross_rate = float(settings_de['cross_rate'])
 
         return None
 
@@ -178,7 +178,15 @@ class SettingsNRBO(object):
     name: str
         Name of the NRBO settings block in the JSON file.
     fname_settings: str
-        Path to the settings file. Default is ``settings.json``.
+        Path to the settings file. Default is 'settings.json'.
+        
+    Attributes:
+    -----------
+    name: str
+        Name of the NRBO settings block in the JSON file.
+    deciding_factor: float
+        Probability of applying the TAO operator,
+        introducing an additional perturbation to avoid getting trapped in a local optimum.
     '''
     def __init__(self, name: str,
             fname_settings: str = 'settings.json'):

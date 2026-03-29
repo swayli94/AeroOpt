@@ -38,6 +38,7 @@ def _make_opt(problem, optimization_settings):
     opt.db_candidate = Database(problem, database_type="population")
     opt.analyze_total = None
     opt.analyze_valid = None
+    opt.user_func_supports_parallel = False
     opt.log = lambda *args, **kwargs: None
     return opt
 
@@ -126,6 +127,36 @@ def test_evaluate_db_candidate_and_merge_total(problem, optimization_settings, m
     assert any(np.allclose(y, np.array([0.35])) for y in ys)
 
 
+def test_evaluate_db_candidate_parallel_user_func(problem, optimization_settings, monkeypatch):
+    def user_func_batch(xs):
+        assert xs.ndim == 2 and xs.shape[0] == 2
+        ys = np.array([[xs[0, 0] * 0.5], [xs[1, 0] * 0.5]])
+        return [True, True], ys
+
+    opt = _make_opt(problem, optimization_settings)
+    opt.user_func = user_func_batch
+    opt.user_func_supports_parallel = True
+    opt.db_candidate = Database(problem, database_type="population")
+    _append_direct(opt.db_candidate, Individual(problem, x=np.array([0.3]), ID=1))
+    _append_direct(opt.db_candidate, Individual(problem, x=np.array([0.7]), ID=2))
+
+    def _patched_add_individual(self, indi, **kwargs):
+        self.individuals.append(indi)
+        self.update_id_list()
+        self._sorted = False
+        return True, ""
+
+    monkeypatch.setattr(Database, "add_individual", _patched_add_individual)
+    opt.evaluate_db_candidate()
+    opt.update_total_and_valid_with_candidate()
+
+    assert opt.db_total.size >= 2
+    ys = [indi.y for indi in opt.db_total.individuals if indi.y is not None]
+    assert len(ys) >= 2
+    assert any(np.allclose(y, np.array([0.15])) for y in ys)
+    assert any(np.allclose(y, np.array([0.35])) for y in ys)
+
+
 class _DummyProblemForPreProcess:
     def __init__(self):
         self.name = "DummyPreProcessProblem"
@@ -170,6 +201,13 @@ def _preprocess_dummy_opt(problem, analyze_valid=None, dir_save="tmp_dir"):
     return opt
 
 
+class _ConcretePreProcess(PreProcess):
+    """Minimal concrete class so tests can call PreProcess helper methods."""
+
+    def apply(self) -> None:
+        pass
+
+
 def test_preprocess_restrict_x_values_by_valid_database():
     problem = _DummyProblemForPreProcess()
     opt = _preprocess_dummy_opt(
@@ -179,7 +217,7 @@ def test_preprocess_restrict_x_values_by_valid_database():
             valid_xs=[0.20, 0.80],
         ),
     )
-    pp = PreProcess(opt)
+    pp = _ConcretePreProcess(opt)
 
     xs = np.array([[0.00], [0.50], [1.20]], dtype=float)
     xs_new = pp._restrict_x_values_by_valid_database(
@@ -198,7 +236,7 @@ def test_preprocess_check_feasibility_sets_calculation_folder(monkeypatch):
     problem = _DummyProblemForPreProcess()
     opt = _preprocess_dummy_opt(problem, dir_save="run_dir")
     opt.mp_evaluation = None
-    pp = PreProcess(opt)
+    pp = _ConcretePreProcess(opt)
 
     def _fake_evaluate(self, mp_evaluation=None, user_func=None):
         for indi in self.individuals:
@@ -231,7 +269,7 @@ def test_preprocess_adjust_x_values_by_valid_database(monkeypatch):
             valid_xs=[0.20, 0.80],
         ),
     )
-    pp = PreProcess(opt)
+    pp = _ConcretePreProcess(opt)
 
     xs = np.array([[0.05], [0.60], [0.95]], dtype=float)
     feasibility_flags = np.array([False, True, False], dtype=bool)
@@ -252,7 +290,7 @@ def test_preprocess_adjust_x_values_by_valid_database(monkeypatch):
 def test_preprocess_adjust_x_feasibility_length_mismatch_raises():
     problem = _DummyProblemForPreProcess()
     opt = _preprocess_dummy_opt(problem)
-    pp = PreProcess(opt)
+    pp = _ConcretePreProcess(opt)
     xs = np.array([[0.1], [0.2]], dtype=float)
     with pytest.raises(ValueError, match="Length mismatch"):
         pp._adjust_x_values_by_valid_database(xs, [True, True, False])

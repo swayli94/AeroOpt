@@ -51,11 +51,16 @@ class NRBO(Algorithm):
         '''
         Perform element-wise division with epsilon protection for near-zero denominators.
 
-        Inputs:
-            numer: Numerator array.
-            denom: Denominator array.
+        Parameters:
+        -----------
+        numer: np.ndarray
+            Numerator array.
+        denom: np.ndarray
+            Denominator array.
 
-        Output:
+        Returns:
+        --------
+        result: np.ndarray
             Element-wise quotient with numerically safe denominator handling.
         '''
         eps = 1.0e-12
@@ -76,14 +81,22 @@ class NRBO(Algorithm):
         '''
         Apply the Newton-Raphson Search Rule (NRSR) to produce two trial anchors.
 
-        Inputs:
-            x_best: Best decision vector in the current parent pool.
-            x_worst: Worst decision vector in the current parent pool.
-            x_now: Current individual's decision vector.
-            rho: Differential perturbation vector used by NRBO.
-            rng: Random number generator.
+        Parameters:
+        -----------
+        x_best: np.ndarray
+            Best decision vector in the current parent pool.
+        x_worst: np.ndarray
+            Worst decision vector in the current parent pool.
+        x_now: np.ndarray
+            Current individual's decision vector.
+        rho: np.ndarray
+            Differential perturbation vector used by NRBO.
+        rng: np.random.Generator
+            Random number generator.
 
-        Outputs:
+        Returns:
+        --------
+        result: tuple
             Tuple `(x1, x2)` where both are candidate anchor vectors used to
             construct the final offspring.
         '''
@@ -114,10 +127,14 @@ class NRBO(Algorithm):
         '''
         Find the best and worst individual indices for single-objective fitness.
 
-        Input:
-            db: Database whose individuals already contain evaluated objectives.
+        Parameters:
+        -----------
+        db: Database
+            Database whose individuals already contain evaluated objectives.
 
-        Output:
+        Returns:
+        --------
+        result: tuple
             Tuple `(i_best, i_worst)` as local indices into `db.individuals`.
         '''
         if db.size <= 0:
@@ -143,17 +160,22 @@ class NRBO(Algorithm):
         '''
         Generate one NRBO offspring per parent and write them into `db_candidate`.
 
-        Inputs:
-            db_valid: Valid archive used to build the parent pool.
-            db_candidate: Output database to be overwritten by new candidates.
-            population_size: Target parent-pool/offspring count.
-            iteration: Current optimization iteration index.
-            max_iterations: Maximum number of optimization iterations.
-            deciding_factor: Probability of applying the TAO operator.
-            rng: Optional NumPy random generator.
-
-        Output:
-            None. The function updates `db_candidate` in place.
+        Parameters:
+        -----------
+        db_valid: Database
+            Valid archive used to build the parent pool.
+        db_candidate: Database
+            Output database to be overwritten by new candidates.
+        population_size: int
+            Target parent-pool/offspring count.
+        iteration: int
+            Current optimization iteration index.
+        max_iterations: int
+            Maximum number of optimization iterations.
+        deciding_factor: float
+            Probability of applying the TAO operator.
+        rng: np.random.Generator
+            Optional NumPy random generator.
         '''
         if db_valid.size <= 0:
             raise RuntimeError('No valid individuals available for NRBO evolution.')
@@ -198,15 +220,17 @@ class NRBO(Algorithm):
 
             x3 = X[i] - delta * (x2 - x1)
             r = float(rng.random())
-            x_new = r * (r * x1 + (1.0 - r) * x2) + (1.0 - r) * x3
+            x_new : np.ndarray = r * (r * x1 + (1.0 - r) * x2) + (1.0 - r) * x3
 
+            # Apply the Trap Avoidance Operator (TAO)
+            # Adding a random perturbation to avoid getting trapped in a local optimum
             if float(rng.random()) < float(deciding_factor):
                 theta1 = float(rng.uniform(-1.0, 1.0))
                 theta2 = float(rng.uniform(-0.5, 0.5))
                 beta = 0.0 if float(rng.random()) > 0.5 else 1.0
                 u1 = beta * 3.0 * float(rng.random()) + (1.0 - beta)
                 u2 = beta * float(rng.random()) + (1.0 - beta)
-                tmp = (
+                tmp : np.ndarray = (
                     theta1 * (u1 * x_best - u2 * X[i])
                     + theta2 * delta * (u1 * float(np.mean(X[i])) - u2 * X[i])
                 )
@@ -254,13 +278,17 @@ class OptNRBO(OptBaseFramework):
             algorithm_settings: SettingsNRBO,
             user_func: Callable = None,
             mp_evaluation: MultiProcessEvaluation = None,
+            user_func_supports_parallel: bool = False,
             rng: np.random.Generator = None,
+            logging: bool = True,
             ):
         super().__init__(
             problem=problem,
             optimization_settings=optimization_settings,
             user_func=user_func,
+            user_func_supports_parallel=user_func_supports_parallel,
             mp_evaluation=mp_evaluation,
+            logging=logging,
         )
         self.algorithm_settings = algorithm_settings
         self.rng = rng
@@ -271,12 +299,6 @@ class OptNRBO(OptBaseFramework):
     def generate_candidate_individuals(self) -> None:
         '''
         Generate NRBO candidates for the current iteration.
-
-        Input:
-            None (uses optimizer internal state and databases).
-
-        Output:
-            None. Updates `self.db_candidate` in place.
         '''
         NRBO.generate_candidate_individuals(
             db_valid=self.db_valid,
@@ -291,11 +313,5 @@ class OptNRBO(OptBaseFramework):
     def select_elite_from_valid(self) -> None:
         '''
         Select elite individuals from the valid archive.
-
-        Input:
-            None (uses `self.db_valid`).
-
-        Output:
-            None. Updates `self.db_elite` in place.
         '''
         DominanceBasedAlgorithm.select_elite_from_valid(self.db_valid, self.db_elite)

@@ -1,5 +1,5 @@
 '''
-Example: demonstrate the DE (with Non-dominated sorting and crowding distance) algorithm.
+Example: demonstrate the Surrogate-based Optimization (SBO) algorithm.
 
 - Create a problem for benchmark functions:
   1) benchmark functions: ZDT1, ZDT2, ZDT3, ZDT4, ZDT6 (in `AeroOpt.utils.benchmark`)
@@ -7,13 +7,21 @@ Example: demonstrate the DE (with Non-dominated sorting and crowding distance) a
   3) xi in [0, 1]
   4) constraint1: x1^2 + x2^2 - 0.64 <= 0.0
 
-- Load DE algorithm settings (`SettingsDE`).
+- Use `AeroOpt.optimization.hybrid.sbo.SBO` as the main optimization framework.
+  1) population size = 32
+  2) max_iterations = 20
+  3) use mp_evaluation for evaluation
 
-- Create a DE optimization object `opt_de`:
-  1) use those algorithm settings for crossover/mutation
-  2) use mp_evaluation for evaluation
-  3) population size = 32
-  4) max_iterations = 20
+- Use `AeroOpt.utils.surrogate.Kriging` as the surrogate model.
+  1) train on the scaled input/output data
+  2) use the default parameters of the `KPLS` model in `SMT` package
+  3) use the same problem as the global optimization problem
+
+- Use `AeroOpt.optimization.stochastic.de.OptDE` as the optimization algorithm on the surrogate model.
+  1) population size = 64
+  2) max_iterations = 20
+
+- Use `AeroOpt.optimization.hybrid.sbo.PostProcessSBO` to evaluate the performance of the surrogate model.
 
 - Start optimization:
   1) run separately for each benchmark function
@@ -28,7 +36,6 @@ from __future__ import annotations
 
 import functools
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Callable, Tuple
@@ -46,20 +53,30 @@ if str(EXAMPLE_DIR) not in sys.path:
     sys.path.insert(0, str(EXAMPLE_DIR))
 
 from examples_common import (
+    MASTER_SEED,
     MAX_ITERATIONS,
     N_INPUT,
     POPULATION_SIZE,
     PLOT_F1_LIM,
     PLOT_F2_LIM_BY_BENCHMARK,
     apply_benchmark_seeds,
-    de_rng_seed,
 )
 
 from AeroOpt.core import Problem, MultiProcessEvaluation, SettingsData, SettingsProblem
 
 from AeroOpt.optimization import SettingsOptimization, SettingsDE
+from AeroOpt.optimization.hybrid.sbo import PostProcessSBO, SBO
 from AeroOpt.optimization.stochastic.de import OptDE
 from AeroOpt.utils import benchmark as bench
+from AeroOpt.utils.surrogate import Kriging
+
+
+SBO_INNER_POPULATION_SIZE = 64
+SBO_INNER_MAX_ITERATIONS = 10
+
+
+def sbo_inner_de_rng_seed(bench_index: int) -> int:
+    return MASTER_SEED + bench_index * 1_000_000 + 70_000_001
 
 
 BENCHMARKS: list[tuple[str, Callable[[np.ndarray], np.ndarray]]] = [
@@ -72,14 +89,14 @@ BENCHMARKS: list[tuple[str, Callable[[np.ndarray], np.ndarray]]] = [
 
 
 def build_settings_file(
-    settings_path: Path, work_dir: Path, benchmark_name: str,
+    settings_path: Path, work_dir: Path, inner_work_dir: Path, benchmark_name: str,
     ) -> None:
     name_inputs = [f"x{i}" for i in range(1, N_INPUT + 1)]
     f2_lo, f2_hi = PLOT_F2_LIM_BY_BENCHMARK[benchmark_name]
     settings = {
-        "zdt_de_data": {
+        "zdt_sbo_data": {
             "type": "SettingsData",
-            "name": "zdt_de_data",
+            "name": "zdt_sbo_data",
             "name_input": name_inputs,
             "input_low": [0.0] * N_INPUT,
             "input_upp": [1.0] * N_INPUT,
@@ -90,16 +107,16 @@ def build_settings_file(
             "output_precision": [0.0, 0.0],
             "critical_scaled_distance": 1.0e-8,
         },
-        "zdt_de_problem": {
+        "zdt_sbo_problem": {
             "type": "SettingsProblem",
-            "name": "zdt_de_problem",
-            "name_data_settings": "zdt_de_data",
+            "name": "zdt_sbo_problem",
+            "name_data_settings": "zdt_sbo_data",
             "output_type": [-1, -1],
             "constraint_strings": ["x1 ** 2 + x2 ** 2 - 0.64"],
         },
-        "zdt_de_opt": {
+        "zdt_sbo_opt": {
             "type": "SettingsOptimization",
-            "name": "zdt_de_opt",
+            "name": "zdt_sbo_opt",
             "resume": False,
             "population_size": POPULATION_SIZE,
             "max_iterations": MAX_ITERATIONS,
@@ -109,12 +126,27 @@ def build_settings_file(
             "fname_db_resume": "db-resume.json",
             "fname_log": "optimization.log",
             "working_directory": str(work_dir),
-            "info_level_on_screen": 1,
+            "info_level_on_screen": 2,
             "critical_potential_x": 0.2,
         },
-        "zdt_de_alg": {
+        "zdt_sbo_inner_opt": {
+            "type": "SettingsOptimization",
+            "name": "zdt_sbo_inner_opt",
+            "resume": False,
+            "population_size": SBO_INNER_POPULATION_SIZE,
+            "max_iterations": SBO_INNER_MAX_ITERATIONS,
+            "fname_db_total": "db-total-inner.json",
+            "fname_db_elite": "db-elite-inner.json",
+            "fname_db_population": "db-population-inner.json",
+            "fname_db_resume": "db-resume-inner.json",
+            "fname_log": "optimization-inner.log",
+            "working_directory": str(inner_work_dir),
+            "info_level_on_screen": 0,
+            "critical_potential_x": 0.2,
+        },
+        "zdt_sbo_alg": {
             "type": "SettingsDE",
-            "name": "zdt_de_alg",
+            "name": "zdt_sbo_alg",
             "scale_factor": 0.5,
             "cross_rate": 0.9,
         },
@@ -123,13 +155,21 @@ def build_settings_file(
         json.dump(settings, f, indent=4, ensure_ascii=False)
 
 
-def _benchmark_user_func(
-    x: np.ndarray,
+def _benchmark_user_func_batch(
+    xs: np.ndarray,
     bench_fn: Callable[[np.ndarray], np.ndarray],
     **kwargs,
-    ) -> Tuple[bool, np.ndarray]:
-    y = bench_fn(np.asarray(x, dtype=float))
-    return True, np.asarray(y, dtype=float)
+    ) -> Tuple[list, np.ndarray]:
+    '''
+    Batch evaluation in the main process (used with ``user_func_supports_parallel``),
+    avoiding Windows process-pool pickling issues with ``functools.partial``.
+    '''
+    xs = np.asarray(xs, dtype=float)
+    n = xs.shape[0]
+    ys = np.zeros((n, 2), dtype=float)
+    for i in range(n):
+        ys[i, :] = bench_fn(xs[i, :])
+    return [True] * n, ys
 
 
 def is_plot_feasible(indi) -> bool:
@@ -138,7 +178,7 @@ def is_plot_feasible(indi) -> bool:
     return float(indi.sum_violation) <= 0.0
 
 
-def plot_subplot(ax, opt: OptDE, title: str, vmax_gen: int,
+def plot_subplot(ax, opt: SBO, title: str, vmax_gen: int,
                 show_pareto_label: bool) -> None:
     cmap = plt.cm.viridis
     norm = plt.Normalize(vmin=0, vmax=max(vmax_gen, 1))
@@ -202,61 +242,81 @@ def run_one_benchmark(
     mp_eval: MultiProcessEvaluation,
     bench_index: int,
     benchmark_name: str,
-    ) -> OptDE:
+    ) -> SBO:
     work_dir.mkdir(parents=True, exist_ok=True)
-    settings_path = work_dir / "settings.json"
-    build_settings_file(settings_path, work_dir, benchmark_name)
+    inner_work_dir = work_dir / "inner_de"
+    inner_work_dir.mkdir(parents=True, exist_ok=True)
 
-    data = SettingsData("zdt_de_data", fname_settings=str(settings_path))
+    settings_path = work_dir / "settings.json"
+    build_settings_file(settings_path, work_dir, inner_work_dir, benchmark_name)
+
+    data = SettingsData("zdt_sbo_data", fname_settings=str(settings_path))
     problem = Problem(
         data,
-        SettingsProblem("zdt_de_problem", data, fname_settings=str(settings_path)),
+        SettingsProblem("zdt_sbo_problem", data, fname_settings=str(settings_path)),
     )
-    opt_settings = SettingsOptimization("zdt_de_opt", fname_settings=str(settings_path))
+    opt_settings = SettingsOptimization("zdt_sbo_opt", fname_settings=str(settings_path))
     opt_settings.working_directory = str(work_dir)
 
-    alg_settings = SettingsDE("zdt_de_alg", fname_settings=str(settings_path))
-    user_func = functools.partial(_benchmark_user_func, bench_fn=bench_fn)
+    inner_opt_settings = SettingsOptimization("zdt_sbo_inner_opt", fname_settings=str(settings_path))
+    inner_opt_settings.working_directory = str(inner_work_dir)
 
-    opt_de = OptDE(
+    alg_settings = SettingsDE("zdt_sbo_alg", fname_settings=str(settings_path))
+    user_func = functools.partial(_benchmark_user_func_batch, bench_fn=bench_fn)
+
+    surrogate = Kriging(problem, train_on_scaled_data=True)
+
+    opt_inner = OptDE(
+        problem=problem,
+        optimization_settings=inner_opt_settings,
+        algorithm_settings=alg_settings,
+        user_func=None,
+        user_func_supports_parallel=True,
+        mp_evaluation=None,
+        rng=np.random.default_rng(int(sbo_inner_de_rng_seed(bench_index))),
+        logging=False,
+    )
+
+    sbo = SBO(
         problem=problem,
         optimization_settings=opt_settings,
-        algorithm_settings=alg_settings,
+        surrogate=surrogate,
+        opt_on_surrogate=opt_inner,
         user_func=user_func,
         mp_evaluation=mp_eval,
-        rng=np.random.default_rng(int(de_rng_seed(bench_index)))
+        post_process=None,
     )
+    sbo.user_func_supports_parallel = True
+    sbo.post_process = PostProcessSBO(sbo, surrogate)
+
     apply_benchmark_seeds(bench_index)
-    opt_de.main()
-    return opt_de
+    sbo.main()
+    return sbo
 
 
 def main() -> None:
     script_dir = Path(__file__).resolve().parent
-    run_root = script_dir / "_de_work"
+    run_root = script_dir / "_sbo_work"
     run_root.mkdir(parents=True, exist_ok=True)
-
-    n_proc = os.cpu_count()
-    if n_proc is None:
-        n_proc = 2
-    n_proc = max(1, min(n_proc, 8))
 
     fig, axes = plt.subplots(1, len(BENCHMARKS), figsize=(16, 3.4), constrained_layout=True)
     axes = np.atleast_1d(axes).ravel()
 
+    # Serial pool (``n_process=None``): real evaluations use the batch user_func in-process.
+    # Process pools on Windows often break with pickled ``partial`` user functions.
     mp_eval = MultiProcessEvaluation(
         dim_input=N_INPUT,
         dim_output=2,
         func=None,
-        n_process=n_proc,
+        n_process=None,
         information=False,
     )
 
     for i, (ax, (bname, bfn)) in enumerate(zip(axes, BENCHMARKS)):
-        print(f"DE example: running {bname} ...", flush=True)
+        print(f"SBO example: running {bname} ...", flush=True)
         subdir = run_root / bname
-        opt_de = run_one_benchmark(bfn, subdir, mp_eval, bench_index=i, benchmark_name=bname)
-        plot_subplot(ax, opt_de, bname, MAX_ITERATIONS, show_pareto_label=True)
+        opt_sbo = run_one_benchmark(bfn, subdir, mp_eval, bench_index=i, benchmark_name=bname)
+        plot_subplot(ax, opt_sbo, bname, MAX_ITERATIONS, show_pareto_label=True)
         ax.set_xlim(PLOT_F1_LIM)
         ax.set_ylim(PLOT_F2_LIM_BY_BENCHMARK[bname])
 
@@ -269,7 +329,7 @@ def main() -> None:
     cbar.ax.yaxis.set_major_formatter(mticker.StrMethodFormatter("{x:.0f}"))
     cbar.set_label("generation")
 
-    out_png = script_dir / "de_zdt_subplots.png"
+    out_png = script_dir / "sbo_zdt_subplots.png"
     fig.savefig(out_png, dpi=150)
     plt.close(fig)
     print(f"Saved figure: {out_png}")

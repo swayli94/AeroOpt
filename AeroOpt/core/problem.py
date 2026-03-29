@@ -7,6 +7,7 @@ import time
 
 import numpy as np
 import numexpr as ne
+import pyDOE
 from scipy.spatial.distance import cdist
 
 from typing import Tuple, List
@@ -97,6 +98,20 @@ class Problem(object):
         Per-output role from settings (e.g. minimize / maximize).
         '''
         return self.problem_settings.output_type
+    
+    @property
+    def name_input(self) -> List[str]:
+        '''
+        Name of the input variables.
+        '''
+        return self.data_settings.name_input
+    
+    @property
+    def name_output(self) -> List[str]:
+        '''
+        Name of the output variables.
+        '''
+        return self.data_settings.name_output
     
     @property
     def mask_for_deactivated_inputs(self) -> np.ndarray:
@@ -466,6 +481,66 @@ class Problem(object):
         perturbed_x = self.scale_x(perturbed_scaled_x, reverse=True)
         self.apply_bounds_x(perturbed_x)
         return perturbed_x
+
+    #* Sampling of input/output vectors.
+    
+    def latin_hypercube_sampling(self, n: int,
+                scaled_values: bool = False,
+                sample_variables: List[str] = None) -> np.ndarray:
+        '''
+        Latin Hypercube Sampling for the input/output vectors.
+        
+        Parameters
+        -------------
+        n: int
+            number of samples
+        scaled_values: bool
+            if True, return the scaled values.
+            if False, return the original values.
+        sample_variables: List[str]
+            list of variables (n_variables) to be sampled.
+            If None, sample all the input variables.
+        
+        Returns
+        -------------
+        samples: ndarray [n, n_variables]
+            sampled input/output vectors
+        '''
+        
+        if sample_variables is None:
+            n_variables = self.n_input
+        elif isinstance(sample_variables, list):
+            n_variables = len(sample_variables)
+        else:
+            raise ValueError('Invalid sample_variables.')
+        
+        v_samples = pyDOE.lhs(n_variables, samples=n, criterion='m')
+        
+        if scaled_values:
+            return v_samples
+        
+        if sample_variables is None:
+            v_samples = self.scale_x(v_samples, reverse=True)
+            return v_samples
+        
+        for i_variable in range(n_variables):
+            
+            name = sample_variables[i_variable]
+            
+            if name in self.data_settings.name_input:
+                i = self.data_settings.name_input.index(name)
+                low = self.data_settings.input_low[i]
+                upp = self.data_settings.input_upp[i]
+            elif name in self.data_settings.name_output:
+                i = self.data_settings.name_output.index(name)
+                low = self.data_settings.output_low[i]
+                upp = self.data_settings.output_upp[i]
+            else:
+                raise ValueError('Invalid name of variable %s.'%(name))
+            
+            v_samples[:, i_variable] = low + v_samples[:, i_variable] * (upp - low)
+        
+        return v_samples
 
     #* Support functions
     

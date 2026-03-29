@@ -237,7 +237,7 @@ class DominanceBasedAlgorithm(object):
         for indi in db.individuals:
             indi.crowding_distance = 0.0
         
-        for front in db._index_pareto_fronts:
+        for front in db.index_pareto_fronts:
             
             if len(front) == 0:
                 continue
@@ -297,7 +297,7 @@ class DominanceBasedAlgorithm(object):
             Indices of selected individuals, length at most `n_select`.
         '''
         index_selected: List[int] = []
-        for front in db._index_pareto_fronts:
+        for front in db.index_pareto_fronts:
             if len(index_selected) + len(front) <= n_select:
                 index_selected.extend(front)
                 continue
@@ -328,7 +328,7 @@ class DominanceBasedAlgorithm(object):
         DominanceBasedAlgorithm.non_dominated_ranking(db)
         DominanceBasedAlgorithm.assign_crowding_distance(db)
         ids_before = [indi.ID for indi in db.individuals]
-        index_fronts_before = copy.deepcopy(db._index_pareto_fronts)
+        index_fronts_before = copy.deepcopy(db.index_pareto_fronts)
         db.sort_database(sort_type=0)
         id_to_new_idx = {indi.ID: i for i, indi in enumerate(db.individuals)}
         db._index_pareto_fronts = [
@@ -391,14 +391,14 @@ class DominanceBasedAlgorithm(object):
 
         DominanceBasedAlgorithm.non_dominated_ranking(db_valid)
         
-        if len(db_valid._index_pareto_fronts) <= 0 or len(db_valid._index_pareto_fronts[0]) <= 0:
+        if len(db_valid.index_pareto_fronts) <= 0 or len(db_valid.index_pareto_fronts[0]) <= 0:
             db_elite.empty_database()
             return
         
         DominanceBasedAlgorithm.assign_crowding_distance(db_valid)
 
         db_elite.copy_from_database(db_valid, 
-                                index_list=db_valid._index_pareto_fronts[0], 
+                                index_list=db_valid.index_pareto_fronts[0], 
                                 deepcopy=True)
         db_elite.sort_database(sort_type=1)
     

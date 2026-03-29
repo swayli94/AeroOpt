@@ -94,6 +94,16 @@ class Database(object):
         '''
         return self._updated_pareto_rank
     
+    @property
+    def index_pareto_fronts(self) -> List[List[int]]:
+        '''
+        Indices of the individuals in each Pareto front.
+        
+        - `index_pareto_fronts[i][j]` is the index of the j-th individual in the i-th Pareto front.
+        - `i=0` is the first (best) Pareto front.
+        '''
+        return self._index_pareto_fronts
+    
     def critical_scaled_distance(self) -> float:
         '''
         Critical scaled distance for checking duplication of individuals.
@@ -927,11 +937,55 @@ class Database(object):
         
         wb.save(excel_fname)
 
+    #* Sampling
+    
+    def initialize_by_sampling(self, n: int) -> None:
+        '''
+        Initialize the database by Latin Hypercube Sampling.
+        Sampling is performed on the input variables.
+        
+        Parameters:
+        -----------
+        n: int
+            Number of samples.
+        '''
+        xs = self.problem.latin_hypercube_sampling(n, sample_variables=None)
+        for i in range(n):
+            indi = Individual(self.problem, x=xs[i])
+            self.add_individual(indi,
+                check_duplication=True,
+                check_bounds=False,
+                deepcopy=True,
+                print_warning_info=False,
+                )
+        
+    def sample_individual_from_database(self, n: int) -> List[Individual]:
+        '''
+        Sample individuals from the database.
+        The individuals are not copied.
+        
+        Parameters:
+        -----------
+        n: int
+            Number of samples.
+            
+        Returns:
+        --------
+        individuals: List[Individual]
+            List of sampled individuals.
+        '''
+        if n > self.size:
+            raise ValueError('Number of samples > size of the database.')    
+        index_list = np.random.choice(self.size, size=n, replace=False)
+        individuals = [self.individuals[i] for i in index_list]
+        return individuals
+
     #* Evaluation
     
     def evaluate_individuals(self,
                     mp_evaluation: MultiProcessEvaluation = None,
                     user_func: Callable = None,
+                    user_func_supports_parallel: bool = False,
                     prefix_folder_name: str = None) -> None:
         '''
         Evaluate the individuals (`y`) in the database,
@@ -945,6 +999,10 @@ class Database(object):
         user_func: Callable
             User-defined function to evaluate the individuals.
             If None, use external evaluation script.
+        user_func_supports_parallel: bool
+            If True, the user-defined function inherently supports parallel evaluation,
+            i.e., `list_succeed, ys = user_func(xs, **kwargs)` can be directly called in this function.
+            If False, either use `mp_evaluation` for parallel evaluation, or use serial evaluation.
         prefix_folder_name: str
             Prefix of the folder name for external evaluation.
             If None, use individual's ID as the folder name.
@@ -974,7 +1032,14 @@ class Database(object):
             list_name.append(prefix_folder_name + str(indi.ID))
 
         # Evaluate individuals.
-        if mp_evaluation is not None:
+        if user_func_supports_parallel:
+            # Directly call the user-defined function for parallel evaluation.
+            list_succeed, ys = user_func(xs)
+            
+            if ys.shape != (self.size, self.problem.n_output):
+                raise ValueError(f'Invalid ys shape: {ys.shape} != [{self.size}, {self.problem.n_output}]')
+        
+        elif mp_evaluation is not None:
             # Use mpEvaluation for both user_func and external_run modes.
             if callable(user_func):
                 mp_evaluation.func = user_func
