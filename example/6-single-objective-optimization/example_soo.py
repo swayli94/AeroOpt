@@ -2,7 +2,7 @@
 Example: comparison of single-objective optimization algorithms.
 
 - Create a problem for benchmark functions:
-  1) benchmark functions: Rastrigin (in `AeroOpt.utils.benchmark`)
+  1) benchmark functions: Rastrigin (in `aeroopt.utils.benchmark`)
   2) n_input = 10, n_output = 1, n_constraint = 1
   3) xi in [-2, 2]
   4) constraint1: x1^2 + x2^2 - 0.64 <= 0.0
@@ -41,12 +41,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from AeroOpt.core import MultiProcessEvaluation, Problem, SettingsData, SettingsProblem
-from AeroOpt.optimization import (
+from aeroopt.core import MultiProcessEvaluation, Problem, SettingsData, SettingsProblem
+from aeroopt.optimization import (
     OptDE, OptNSGAII, OptNRBO,
     SettingsDE, SettingsNRBO, SettingsNSGAII, SettingsOptimization
 )
-from AeroOpt.utils.benchmark import Rastrigin
+from aeroopt.utils.benchmark import Rastrigin
 
 
 N_INPUT = 10

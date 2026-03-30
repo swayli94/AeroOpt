@@ -1,11 +1,11 @@
 """
-Tests for AeroOpt.utils.benchmark.
+Tests for aeroopt.utils.benchmark.
 """
 
 import numpy as np
 import pytest
 
-from AeroOpt.utils import benchmark as bm
+from aeroopt.utils import benchmark as bm
 
 
 # -----------------------------------------------------------------------------

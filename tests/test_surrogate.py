@@ -3,15 +3,15 @@ import os
 import numpy as np
 import pytest
 
-from AeroOpt.core.problem import Problem
-from AeroOpt.core.settings import SettingsData, SettingsProblem
-from AeroOpt.utils.surrogate import Kriging, SurrogateModel
+from aeroopt.core.problem import Problem
+from aeroopt.core.settings import SettingsData, SettingsProblem
+from aeroopt.utils.surrogate import Kriging, SurrogateModel
 
 
 @pytest.fixture(scope="module")
 def settings_path():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(root, "AeroOpt", "template_settings.json")
+    return os.path.join(root, "aeroopt", "template_settings.json")
 
 
 @pytest.fixture

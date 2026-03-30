@@ -1,11 +1,11 @@
-# Tests for AeroOpt.core.utils
+# Tests for aeroopt.core.utils
 # Windows 路径在 check_folder 中已区分
 
 import os
 import numpy as np
 import pytest
 
-from AeroOpt.core.utils import compare_ndarray, init_log, log, check_folder
+from aeroopt.core.utils import compare_ndarray, init_log, log, check_folder
 
 
 class TestCompareNdarray:

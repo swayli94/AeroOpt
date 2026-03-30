@@ -12,7 +12,7 @@ from scipy.spatial.distance import cdist
 
 from typing import Tuple, List
 
-from AeroOpt.core.settings import SettingsData, SettingsProblem
+from aeroopt.core.settings import SettingsData, SettingsProblem
 
 
 class Problem(object):

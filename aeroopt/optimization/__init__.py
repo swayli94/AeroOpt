@@ -1,25 +1,25 @@
 '''
 Optimization framework and algorithms.
 '''
-from AeroOpt.optimization.base import (
+from aeroopt.optimization.base import (
     OptBaseFramework, PreProcess, PostProcess
 )
 
-from AeroOpt.optimization.settings import (
+from aeroopt.optimization.settings import (
     SettingsOptimization, SettingsNSGAII, SettingsNSGAIII,
     SettingsRVEA, SettingsDE, SettingsNRBO, SettingsMOEAD,
 )
 
-from AeroOpt.optimization.moea import (
+from aeroopt.optimization.moea import (
     DominanceBasedAlgorithm,
 )
 
-from AeroOpt.optimization.stochastic.nsgaii import NSGAII, OptNSGAII
-from AeroOpt.optimization.stochastic.nsgaiii import NSGAIII, OptNSGAIII
-from AeroOpt.optimization.stochastic.rvea import RVEA, RVEAApdState, OptRVEA
-from AeroOpt.optimization.stochastic.moead import MOEAD, OptMOEAD
-from AeroOpt.optimization.stochastic.de import DiffEvolution, OptDE
-from AeroOpt.optimization.stochastic.nrbo import NRBO, OptNRBO
+from aeroopt.optimization.stochastic.nsgaii import NSGAII, OptNSGAII
+from aeroopt.optimization.stochastic.nsgaiii import NSGAIII, OptNSGAIII
+from aeroopt.optimization.stochastic.rvea import RVEA, RVEAApdState, OptRVEA
+from aeroopt.optimization.stochastic.moead import MOEAD, OptMOEAD
+from aeroopt.optimization.stochastic.de import DiffEvolution, OptDE
+from aeroopt.optimization.stochastic.nrbo import NRBO, OptNRBO
 
 
 __all__ = [

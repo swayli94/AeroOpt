@@ -12,7 +12,7 @@ import copy
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional, Tuple
 import numpy as np
-from AeroOpt.core import Database
+from aeroopt.core import Database
 
 
 class Algorithm(ABC):

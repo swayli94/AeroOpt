@@ -30,20 +30,20 @@ from typing import Callable
 
 import numpy as np
 
-from AeroOpt.core import (
+from aeroopt.core import (
     Problem,
     Individual,
     Database,
     MultiProcessEvaluation,
 )
-from AeroOpt.optimization.base import OptBaseFramework
-from AeroOpt.optimization.moea import Algorithm, DominanceBasedAlgorithm
-from AeroOpt.optimization.settings import SettingsNRBO, SettingsOptimization
+from aeroopt.optimization.base import OptBaseFramework
+from aeroopt.optimization.moea import Algorithm, DominanceBasedAlgorithm
+from aeroopt.optimization.settings import SettingsNRBO, SettingsOptimization
 
 
 class NRBO(Algorithm):
     '''
-    NRBO operators (NRSR + TAO) adapted to the AeroOpt database workflow.
+    NRBO operators (NRSR + TAO) adapted to the aeroopt database workflow.
     '''
 
     @staticmethod

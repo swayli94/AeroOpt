@@ -10,9 +10,9 @@ from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
 
 from typing import List, Tuple, Callable
-from AeroOpt.core.individual import Individual
-from AeroOpt.core.problem import Problem
-from AeroOpt.core.mpEvaluation import MultiProcessEvaluation
+from aeroopt.core.individual import Individual
+from aeroopt.core.problem import Problem
+from aeroopt.core.mpEvaluation import MultiProcessEvaluation
 
 
 class Database(object):

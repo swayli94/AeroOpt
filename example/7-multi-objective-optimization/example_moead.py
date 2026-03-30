@@ -2,7 +2,7 @@
 Example: demonstrate MOEA/D (multiobjective evolutionary algorithm based on decomposition).
 
 - Create a problem for benchmark functions:
-  1) benchmark functions: ZDT1, ZDT2, ZDT3, ZDT4, ZDT6 (in `AeroOpt.utils.benchmark`)
+  1) benchmark functions: ZDT1, ZDT2, ZDT3, ZDT4, ZDT6 (in `aeroopt.utils.benchmark`)
   2) n_input = 3, n_output = 2, n_constraint = 1
   3) xi in [0, 1]
   4) constraint1: x1^2 + x2^2 - 0.64 <= 0.0（与 DE / RVEA 等示例相同）
@@ -55,10 +55,10 @@ from examples_common import (
     moead_rng_seed,
 )
 
-from AeroOpt.core import Problem, MultiProcessEvaluation, SettingsData, SettingsProblem
+from aeroopt.core import Problem, MultiProcessEvaluation, SettingsData, SettingsProblem
 
-from AeroOpt.optimization import SettingsOptimization, SettingsMOEAD, OptMOEAD as OptMOEADBase
-from AeroOpt.utils import benchmark as bench
+from aeroopt.optimization import SettingsOptimization, SettingsMOEAD, OptMOEAD as OptMOEADBase
+from aeroopt.utils import benchmark as bench
 
 
 class OptMOEAD(OptMOEADBase):

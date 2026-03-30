@@ -3,8 +3,8 @@ import os
 import numpy as np
 import pytest
 
-from AeroOpt.core import Database, Individual, Problem, SettingsData, SettingsProblem
-from AeroOpt.optimization import (
+from aeroopt.core import Database, Individual, Problem, SettingsData, SettingsProblem
+from aeroopt.optimization import (
     DominanceBasedAlgorithm,
     NRBO,
     OptNRBO,
@@ -16,7 +16,7 @@ from AeroOpt.optimization import (
 @pytest.fixture(scope="module")
 def settings_path():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(root, "AeroOpt", "template_settings.json")
+    return os.path.join(root, "aeroopt", "template_settings.json")
 
 
 @pytest.fixture

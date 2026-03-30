@@ -8,13 +8,13 @@ from abc import ABC, abstractmethod
 
 from typing import List, Callable, Tuple
 
-from AeroOpt.core import (
+from aeroopt.core import (
     Problem, Individual, Database,
     MultiProcessEvaluation,
     init_log, log
 )
-from AeroOpt.optimization.settings import SettingsOptimization
-from AeroOpt.analysis.analyze_database import AnalyzeDatabase
+from aeroopt.optimization.settings import SettingsOptimization
+from aeroopt.analysis.analyze_database import AnalyzeDatabase
 
 
 class OptBaseFramework(ABC):

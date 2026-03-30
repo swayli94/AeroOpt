@@ -3,10 +3,10 @@ import os
 import numpy as np
 import pytest
 
-from AeroOpt.core import Individual, Problem, SettingsData, SettingsProblem
-from AeroOpt.optimization import SettingsDE, SettingsOptimization
-from AeroOpt.optimization.hybrid.sao import SAO
-from AeroOpt.utils.surrogate import SurrogateModel
+from aeroopt.core import Individual, Problem, SettingsData, SettingsProblem
+from aeroopt.optimization import SettingsDE, SettingsOptimization
+from aeroopt.optimization.hybrid.sao import SAO
+from aeroopt.utils.surrogate import SurrogateModel
 
 from tests.test_sbo import _InnerOptShell, _StubSurrogate
 
@@ -14,7 +14,7 @@ from tests.test_sbo import _InnerOptShell, _StubSurrogate
 @pytest.fixture(scope="module")
 def settings_path():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(root, "AeroOpt", "template_settings.json")
+    return os.path.join(root, "aeroopt", "template_settings.json")
 
 
 @pytest.fixture

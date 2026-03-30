@@ -1,10 +1,10 @@
-# Tests for AeroOpt.core.mpEvaluation
+# Tests for aeroopt.core.mpEvaluation
 # 使用内置 func 或 template_usr_func，不依赖外部 run.bat
 
 import numpy as np
 import pytest
 
-from AeroOpt.core.mpEvaluation import MultiProcessEvaluation, template_usr_func
+from aeroopt.core.mpEvaluation import MultiProcessEvaluation, template_usr_func
 
 
 class TestTemplateUsrFunc:

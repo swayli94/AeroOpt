@@ -15,7 +15,7 @@ import time
 import concurrent
 import concurrent.futures
 from concurrent.futures import as_completed
-from AeroOpt.core.problem import Problem
+from aeroopt.core.problem import Problem
 from typing import List, Callable
 
 

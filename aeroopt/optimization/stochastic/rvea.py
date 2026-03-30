@@ -27,25 +27,25 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from AeroOpt.core import (
+from aeroopt.core import (
     Problem,
     Individual,
     Database,
     MultiProcessEvaluation,
 )
 
-from AeroOpt.optimization.moea import (
+from aeroopt.optimization.moea import (
     Algorithm,
     DominanceBasedAlgorithm,
     DecompositionBasedAlgorithm,
 )
-from AeroOpt.optimization.utils import (
+from aeroopt.optimization.utils import (
     binary_tournament_selection,
     polynomial_mutation,
     sbx_crossover,
 )
-from AeroOpt.optimization.base import OptBaseFramework
-from AeroOpt.optimization.settings import (
+from aeroopt.optimization.base import OptBaseFramework
+from aeroopt.optimization.settings import (
     SettingsRVEA,
     SettingsOptimization,
 )

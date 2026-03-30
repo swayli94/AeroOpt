@@ -12,25 +12,25 @@ from typing import List, Optional
 
 import numpy as np
 
-from AeroOpt.core import (
+from aeroopt.core import (
     Problem,
     Individual,
     Database,
     MultiProcessEvaluation,
 )
 
-from AeroOpt.optimization.moea import (
+from aeroopt.optimization.moea import (
     Algorithm, DominanceBasedAlgorithm, DecompositionBasedAlgorithm
 )
-from AeroOpt.optimization.utils import (
+from aeroopt.optimization.utils import (
     associate_to_reference,
     binary_tournament_selection,
     polynomial_mutation,
     reference_directions,
     sbx_crossover,
 )
-from AeroOpt.optimization.base import OptBaseFramework
-from AeroOpt.optimization.settings import (
+from aeroopt.optimization.base import OptBaseFramework
+from aeroopt.optimization.settings import (
     SettingsNSGAIII, SettingsOptimization
 )
 

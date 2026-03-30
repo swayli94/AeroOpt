@@ -6,7 +6,7 @@ from typing import List, Tuple
 
 import numpy as np
 
-from AeroOpt.core import Database, Individual, Problem
+from aeroopt.core import Database, Individual, Problem
 
 
 def sbx_crossover(

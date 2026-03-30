@@ -4,9 +4,9 @@ Individual definition.
 
 import numpy as np
 from typing import Tuple, Dict, Any
-from AeroOpt.core.problem import Problem
-from AeroOpt.core.settings import SettingsData
-from AeroOpt.core.utils import compare_ndarray
+from aeroopt.core.problem import Problem
+from aeroopt.core.settings import SettingsData
+from aeroopt.core.utils import compare_ndarray
 
 
 class Individual(object):

@@ -4,20 +4,20 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from AeroOpt.core import Database, Individual, Problem, SettingsData, SettingsProblem
-from AeroOpt.optimization import SettingsOptimization
-from AeroOpt.optimization.hybrid.sbo import (
+from aeroopt.core import Database, Individual, Problem, SettingsData, SettingsProblem
+from aeroopt.optimization import SettingsOptimization
+from aeroopt.optimization.hybrid.sbo import (
     PostProcessSBO,
     SBO,
     _surrogate_user_func,
 )
-from AeroOpt.utils.surrogate import SurrogateModel
+from aeroopt.utils.surrogate import SurrogateModel
 
 
 @pytest.fixture(scope="module")
 def settings_path():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(root, "AeroOpt", "template_settings.json")
+    return os.path.join(root, "aeroopt", "template_settings.json")
 
 
 @pytest.fixture

@@ -4,16 +4,16 @@ import numpy as np
 import pytest
 from openpyxl import load_workbook
 
-from AeroOpt.core.settings import SettingsData, SettingsProblem
-from AeroOpt.core.problem import Problem
-from AeroOpt.core.individual import Individual
-from AeroOpt.core.database import Database
+from aeroopt.core.settings import SettingsData, SettingsProblem
+from aeroopt.core.problem import Problem
+from aeroopt.core.individual import Individual
+from aeroopt.core.database import Database
 
 
 @pytest.fixture(scope="module")
 def settings_path():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(root, "AeroOpt", "template_settings.json")
+    return os.path.join(root, "aeroopt", "template_settings.json")
 
 
 @pytest.fixture(scope="module")

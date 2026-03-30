@@ -6,14 +6,14 @@ from typing import List, Callable, Tuple
 import numpy as np
 import functools
 
-from AeroOpt.core import (
+from aeroopt.core import (
     Problem, Individual, 
     MultiProcessEvaluation
 )
-from AeroOpt.optimization.settings import SettingsOptimization
-from AeroOpt.optimization.base import OptBaseFramework, PreProcess, PostProcess
-from AeroOpt.utils.surrogate import SurrogateModel
-from AeroOpt.optimization.moea import DominanceBasedAlgorithm
+from aeroopt.optimization.settings import SettingsOptimization
+from aeroopt.optimization.base import OptBaseFramework, PreProcess, PostProcess
+from aeroopt.utils.surrogate import SurrogateModel
+from aeroopt.optimization.moea import DominanceBasedAlgorithm
 
 
 def _surrogate_user_func(

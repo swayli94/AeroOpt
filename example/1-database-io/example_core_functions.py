@@ -1,5 +1,5 @@
 '''
-Example: demonstrate core functions of AeroOpt.
+Example: demonstrate core functions of aeroopt.
 
 - Create a problem and a database.
 - Write the database to a JSON file.
@@ -19,10 +19,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from AeroOpt.core.database import Database
-from AeroOpt.core.individual import Individual
-from AeroOpt.core.problem import Problem
-from AeroOpt.core.settings import CustomConstraintFunction, SettingsData, SettingsProblem
+from aeroopt.core.database import Database
+from aeroopt.core.individual import Individual
+from aeroopt.core.problem import Problem
+from aeroopt.core.settings import CustomConstraintFunction, SettingsData, SettingsProblem
 
 
 class DemoConstraintYUpper(CustomConstraintFunction):

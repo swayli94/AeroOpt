@@ -25,11 +25,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from AeroOpt.core.database import Database
-from AeroOpt.core.individual import Individual
-from AeroOpt.core.mpEvaluation import MultiProcessEvaluation
-from AeroOpt.core.problem import Problem
-from AeroOpt.core.settings import SettingsData, SettingsProblem
+from aeroopt.core.database import Database
+from aeroopt.core.individual import Individual
+from aeroopt.core.mpEvaluation import MultiProcessEvaluation
+from aeroopt.core.problem import Problem
+from aeroopt.core.settings import SettingsData, SettingsProblem
 
 
 def build_minimal_settings_file(settings_path: Path) -> None:

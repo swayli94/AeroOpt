@@ -7,15 +7,15 @@ import numpy as np
 import functools
 import copy
 
-from AeroOpt.core import (
+from aeroopt.core import (
     Problem, Individual, 
     MultiProcessEvaluation
 )
-from AeroOpt.optimization.settings import SettingsOptimization, SettingsDE
-from AeroOpt.optimization.base import OptBaseFramework, PreProcess, PostProcess
-from AeroOpt.utils.surrogate import SurrogateModel
-from AeroOpt.optimization.moea import DominanceBasedAlgorithm
-from AeroOpt.optimization.stochastic.de import DiffEvolution
+from aeroopt.optimization.settings import SettingsOptimization, SettingsDE
+from aeroopt.optimization.base import OptBaseFramework, PreProcess, PostProcess
+from aeroopt.utils.surrogate import SurrogateModel
+from aeroopt.optimization.moea import DominanceBasedAlgorithm
+from aeroopt.optimization.stochastic.de import DiffEvolution
 
 
 def _surrogate_user_func(

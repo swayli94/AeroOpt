@@ -4,13 +4,13 @@ import random
 import numpy as np
 import pytest
 
-from AeroOpt.core import Database, Individual, Problem, SettingsData, SettingsProblem
-from AeroOpt.optimization import (
+from aeroopt.core import Database, Individual, Problem, SettingsData, SettingsProblem
+from aeroopt.optimization import (
     SettingsOptimization,
     DominanceBasedAlgorithm,
     NSGAII,
 )
-from AeroOpt.optimization.utils import (
+from aeroopt.optimization.utils import (
     binary_tournament_selection,
     polynomial_mutation,
     sbx_crossover,
@@ -19,7 +19,7 @@ from AeroOpt.optimization.utils import (
 @pytest.fixture(scope="module")
 def settings_path():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(root, "AeroOpt", "template_settings.json")
+    return os.path.join(root, "aeroopt", "template_settings.json")
 
 
 @pytest.fixture

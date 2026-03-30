@@ -29,10 +29,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from AeroOpt.core import Database, Individual, Problem
-from AeroOpt.core.settings import SettingsData, SettingsProblem
-from AeroOpt.optimization.moea import DecompositionBasedAlgorithm
-from AeroOpt.optimization.utils import reference_directions
+from aeroopt.core import Database, Individual, Problem
+from aeroopt.core.settings import SettingsData, SettingsProblem
+from aeroopt.optimization.moea import DecompositionBasedAlgorithm
+from aeroopt.optimization.utils import reference_directions
 
 
 def _biased_pareto_for_slow_direction_demo(

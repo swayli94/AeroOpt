@@ -1,1 +1,1 @@
-# Tests for AeroOpt
+# Tests for aeroopt

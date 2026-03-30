@@ -1,17 +1,17 @@
-# Tests for AeroOpt.core.settings
+# Tests for aeroopt.core.settings
 # 使用 template_settings.json，Windows 路径兼容
 
 import os
 import numpy as np
 import pytest
 
-from AeroOpt.core.settings import SettingsData, SettingsProblem, CustomConstraintFunction
+from aeroopt.core.settings import SettingsData, SettingsProblem, CustomConstraintFunction
 
 
 @pytest.fixture(scope="module")
 def settings_path():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    path = os.path.join(root, "AeroOpt", "template_settings.json")
+    path = os.path.join(root, "aeroopt", "template_settings.json")
     assert os.path.exists(path), f"template_settings.json not found at {path}"
     return path
 

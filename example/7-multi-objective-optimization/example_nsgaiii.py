@@ -2,7 +2,7 @@
 Example: demonstrate the NSGA-III algorithm.
 
 - Create a problem for benchmark functions:
-  1) benchmark functions: ZDT1, ZDT2, ZDT3, ZDT4, ZDT6 (in `AeroOpt.utils.benchmark`)
+  1) benchmark functions: ZDT1, ZDT2, ZDT3, ZDT4, ZDT6 (in `aeroopt.utils.benchmark`)
   2) n_input = 3, n_output = 2, n_constraint = 1
   3) xi in [0, 1]
   4) constraint1: x1^2 + x2^2 - 0.64 <= 0.0
@@ -54,12 +54,12 @@ from examples_common import (
     apply_benchmark_seeds,
 )
 
-from AeroOpt.core import Problem, MultiProcessEvaluation, SettingsData, SettingsProblem
+from aeroopt.core import Problem, MultiProcessEvaluation, SettingsData, SettingsProblem
 
-from AeroOpt.optimization import (
+from aeroopt.optimization import (
     OptNSGAIII, SettingsNSGAIII, SettingsOptimization,
 )
-from AeroOpt.utils import benchmark as bench
+from aeroopt.utils import benchmark as bench
 
 BENCHMARKS: list[tuple[str, Callable[[np.ndarray], np.ndarray]]] = [
     ("ZDT1", bench.ZDT1),

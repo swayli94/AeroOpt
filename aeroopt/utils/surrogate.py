@@ -1,5 +1,5 @@
 '''
-This is an interface for surrogate models in AeroOpt.
+This is an interface for surrogate models in aeroopt.
 
 Classic surrogate model packages:
 
@@ -14,7 +14,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 from typing import Any, Dict
 
-from AeroOpt.core.problem import Problem
+from aeroopt.core.problem import Problem
 
 
 class SurrogateModel(ABC):

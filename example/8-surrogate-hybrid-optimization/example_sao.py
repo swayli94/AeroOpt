@@ -2,26 +2,26 @@
 Example: demonstrate the Surrogate-assisted Optimization (SAO) algorithm.
 
 - Create a problem for benchmark functions:
-  1) benchmark functions: ZDT1, ZDT2, ZDT3, ZDT4, ZDT6 (in `AeroOpt.utils.benchmark`)
+  1) benchmark functions: ZDT1, ZDT2, ZDT3, ZDT4, ZDT6 (in `aeroopt.utils.benchmark`)
   2) n_input = 3, n_output = 2, n_constraint = 1
   3) xi in [0, 1]
   4) constraint1: x1^2 + x2^2 - 0.64 <= 0.0
 
-- Use `AeroOpt.optimization.hybrid.sao.SAO` as the main optimization framework.
+- Use `aeroopt.optimization.hybrid.sao.SAO` as the main optimization framework.
   1) population size = 32
   2) max_iterations = 20
   3) use mp_evaluation for evaluation
 
-- Use `AeroOpt.utils.surrogate.Kriging` as the surrogate model.
+- Use `aeroopt.utils.surrogate.Kriging` as the surrogate model.
   1) train on the scaled input/output data
   2) use the default parameters of the `KPLS` model in `SMT` package
   3) use the same problem as the global optimization problem
 
-- Use `AeroOpt.optimization.stochastic.de.OptDE` as the optimization algorithm on the surrogate model.
+- Use `aeroopt.optimization.stochastic.de.OptDE` as the optimization algorithm on the surrogate model.
   1) population size = 64
   2) max_iterations = 20
 
-- Use `AeroOpt.optimization.hybrid.sao.PostProcessSAO` to evaluate the performance of the surrogate model.
+- Use `aeroopt.optimization.hybrid.sao.PostProcessSAO` to evaluate the performance of the surrogate model.
 
 - Start optimization:
   1) run separately for each benchmark function
@@ -62,13 +62,13 @@ from examples_common import (
     apply_benchmark_seeds,
 )
 
-from AeroOpt.core import Problem, MultiProcessEvaluation, SettingsData, SettingsProblem
+from aeroopt.core import Problem, MultiProcessEvaluation, SettingsData, SettingsProblem
 
-from AeroOpt.optimization import SettingsOptimization, SettingsDE
-from AeroOpt.optimization.hybrid.sao import PostProcessSAO, SAO
-from AeroOpt.optimization.stochastic.de import OptDE
-from AeroOpt.utils import benchmark as bench
-from AeroOpt.utils.surrogate import Kriging
+from aeroopt.optimization import SettingsOptimization, SettingsDE
+from aeroopt.optimization.hybrid.sao import PostProcessSAO, SAO
+from aeroopt.optimization.stochastic.de import OptDE
+from aeroopt.utils import benchmark as bench
+from aeroopt.utils.surrogate import Kriging
 
 
 SAO_INNER_POPULATION_SIZE = 64

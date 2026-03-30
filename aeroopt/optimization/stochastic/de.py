@@ -12,16 +12,16 @@ from typing import Callable
 
 import numpy as np
 
-from AeroOpt.core import (
+from aeroopt.core import (
     Individual,
     Database,
     MultiProcessEvaluation,
     Problem,
 )
-from AeroOpt.optimization.base import OptBaseFramework
-from AeroOpt.optimization.moea import Algorithm, DominanceBasedAlgorithm
-from AeroOpt.optimization.settings import SettingsDE, SettingsOptimization
-from AeroOpt.optimization.utils import sample_de_rand_1_indices, binomial_crossover
+from aeroopt.optimization.base import OptBaseFramework
+from aeroopt.optimization.moea import Algorithm, DominanceBasedAlgorithm
+from aeroopt.optimization.settings import SettingsDE, SettingsOptimization
+from aeroopt.optimization.utils import sample_de_rand_1_indices, binomial_crossover
 
 
 class DiffEvolution(Algorithm):

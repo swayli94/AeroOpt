@@ -7,11 +7,11 @@ from typing import Dict, Tuple, List
 from scipy.spatial.distance import cdist
 from sklearn.cluster import KMeans
 
-from AeroOpt.core.problem import Problem
-from AeroOpt.core.database import Database
-from AeroOpt.core.individual import Individual
+from aeroopt.core.problem import Problem
+from aeroopt.core.database import Database
+from aeroopt.core.individual import Individual
 
-from AeroOpt.analysis.utils import (
+from aeroopt.analysis.utils import (
     calculate_potential_coefficient,
     func_potential
 )
