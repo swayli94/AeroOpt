@@ -193,7 +193,7 @@ def test_generate_candidate_individuals_builds_offspring(problem_biobj):
     assert db_candidate.size == 4
     assert len(pending) == 4
     for indi in db_candidate.individuals:
-        assert indi.source == "MOEAD"
+        assert indi.source == 'evolutionary_operator'
         assert indi.generation == 2
         assert problem_biobj.check_bounds_x(indi.x)
 

@@ -5,6 +5,9 @@ Settings of optimization framework and algorithms.
 import os
 import json
 
+# JSON entry metadata; not applied as optimization fields.
+_SETTINGS_OPTIMIZATION_METADATA_KEYS = frozenset({'type', 'name'})
+
 
 class SettingsOptimization(object):
     '''
@@ -55,19 +58,21 @@ class SettingsOptimization(object):
 
         if settings_opt is None:
             raise ValueError(f'SettingsOptimization {self.name} not found in {fname_settings}.')
-        
-        self.resume = settings_opt['resume']
-        self.population_size = int(settings_opt['population_size'])
-        self.max_iterations = int(settings_opt['max_iterations'])
-        self.fname_db_total = str(settings_opt['fname_db_total'])
-        self.fname_db_elite = str(settings_opt['fname_db_elite'])
-        self.fname_db_population = str(settings_opt['fname_db_population'])
-        self.fname_db_resume = str(settings_opt['fname_db_resume'])
-        self.fname_log = str(settings_opt['fname_log'])
-        self.working_directory = str(settings_opt['working_directory'])
-        self.info_level_on_screen = int(settings_opt['info_level_on_screen'])
-        self.critical_potential_x = float(settings_opt['critical_potential_x'])
-        
+
+        for key, value in settings_opt.items():
+            if key in _SETTINGS_OPTIMIZATION_METADATA_KEYS:
+                continue
+            if key == 'resume':
+                self.resume = bool(value)
+            elif key in ('population_size', 'max_iterations', 'info_level_on_screen'):
+                setattr(self, key, int(value))
+            elif key == 'critical_potential_x':
+                self.critical_potential_x = float(value)
+            elif key.startswith('fname_') or key in ('working_directory', 'fname_log'):
+                setattr(self, key, str(value))
+            else:
+                setattr(self, key, value)
+
         return None
 
 

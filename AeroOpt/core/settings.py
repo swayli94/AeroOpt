@@ -26,17 +26,12 @@ class SettingsData(object):
         'previous_database': 1,
         'user_input': 2,
         'DoE': 3,
-        'random': 4,
-        'perturbation': 5,
-        'GA': 6,
-        'DE': 7,
-        'DE-1': 71,
-        'DE-2': 72,
-        'DE-3': 73,
-        'surrogate_prediction': 8,
-        'space_filling': 9,
-        'gradient': 10,
-        'sub_direction': 11
+        'perturbation': 4,
+        'evolutionary_operator': 5,
+        'surrogate_prediction': 6,
+        'space_filling': 7,
+        'gradient': 8,
+        'sub_direction': 9
     }
     
     def __init__(self, name: str, 

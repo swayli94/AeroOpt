@@ -238,7 +238,7 @@ class NRBO(Algorithm):
 
             problem.apply_bounds_x(x_new)
             indi = Individual(problem=problem, x=x_new)
-            indi.source = 'NRBO'
+            indi.source = 'evolutionary_operator'
             indi.generation = int(iteration)
             db_candidate.add_individual(
                 indi,

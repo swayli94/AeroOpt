@@ -175,6 +175,6 @@ def test_generate_candidate_individuals_builds_offspring(problem):
 
     assert db_candidate.size == 4
     for indi in db_candidate.individuals:
-        assert indi.source == "GA"
+        assert indi.source == 'evolutionary_operator'
         assert indi.generation == 2
         assert problem.check_bounds_x(indi.x)

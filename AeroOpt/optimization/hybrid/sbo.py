@@ -187,7 +187,7 @@ class SBO(OptBaseFramework):
             indi = Individual(problem=self.problem, x=x)
             indi.source = 'surrogate_prediction'
             indi.generation = self.iteration
-            self.db_candidate.add_individual(
+            added, warning_text = self.db_candidate.add_individual(
                 indi,
                 check_duplication=True,
                 check_bounds=True,
@@ -195,10 +195,13 @@ class SBO(OptBaseFramework):
                 print_warning_info=False,
             )
             
-            # Store the prediction of the surrogate model
-            y_predicted = np.zeros(self.problem.n_output)
-            y_predicted[self.index_outputs_for_surrogate] = temp_parents.individuals[i].y
-            indi._y_predicted = y_predicted
+            if added:
+                # Store the prediction of the surrogate model
+                y_predicted = np.zeros(self.problem.n_output)
+                y_predicted[self.index_outputs_for_surrogate] = temp_parents.individuals[i].y
+                indi._y_predicted = y_predicted
+            else:
+                self.log(warning_text, level=2, prefix='  > ')
 
     def select_elite_from_valid(self) -> None:
         '''

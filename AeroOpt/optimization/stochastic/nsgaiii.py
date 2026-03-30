@@ -244,7 +244,7 @@ class NSGAIII(Algorithm):
                 if db_candidate.size >= population_size:
                     break
                 indi = Individual(problem=db_candidate.problem, x=x_child)
-                indi.source = "GA"
+                indi.source = 'evolutionary_operator'
                 indi.generation = iteration
                 db_candidate.add_individual(
                     indi, check_duplication=True, check_bounds=True,

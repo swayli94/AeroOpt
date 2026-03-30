@@ -180,7 +180,7 @@ class MOEAD(Algorithm):
                 mut_rate=mut_rate, pow_poly=pow_poly)
 
             indi = Individual(problem=db_candidate.problem, x=pick)
-            indi.source = 'MOEAD'
+            indi.source = 'evolutionary_operator'
             indi.generation = int(iteration)
             added, _ = db_candidate.add_individual(
                 indi, check_duplication=True, check_bounds=True,

@@ -51,12 +51,12 @@ class TestIndividualBasics:
 
     def test_source2int(self, ind):
         assert ind.source2int == 0
-        ind.source = "DE"
-        assert ind.source2int == 7
+        ind.source = "evolutionary_operator"
+        assert ind.source2int == 5
 
     def test_int2source(self):
         assert Individual.int2source(0) == "default"
-        assert Individual.int2source(7) == "DE"
+        assert Individual.int2source(5) == "evolutionary_operator"
 
 
 class TestIndividualObjectives:

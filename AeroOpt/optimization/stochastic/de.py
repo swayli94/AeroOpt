@@ -70,7 +70,7 @@ class DiffEvolution(Algorithm):
             problem.apply_bounds_x(trial_x)
 
             indi = Individual(problem=problem, x=trial_x)
-            indi.source = 'DE'
+            indi.source = 'evolutionary_operator'
             indi.generation = iteration
             db_candidate.add_individual(
                 indi,

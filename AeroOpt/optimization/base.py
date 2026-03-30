@@ -246,7 +246,7 @@ class OptBaseFramework(ABC):
 
         for indi in self.db_total.individuals:
             indi.generation = 0
-            indi.source = 'prev_database'
+            indi.source = 'previous_database'
 
         self.iteration = 0
         self.log(f'Resume from [{fname}], size = {self.db_total.size}.', level=0)
@@ -297,7 +297,7 @@ class OptBaseFramework(ABC):
         self.db_candidate.empty_database()
         for x in xs:
             indi = Individual(problem=self.problem, x=x)
-            indi.source = "random"
+            indi.source = 'DoE'
             indi.generation = 0
             added, warning_info = self.db_candidate.add_individual(indi, check_duplication=True,
                                     check_bounds=True, deepcopy=False, print_warning_info=False)

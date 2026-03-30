@@ -86,7 +86,7 @@ def test_generate_candidate_individuals_builds_trials(problem):
     )
     assert db_candidate.size == 4
     for indi in db_candidate.individuals:
-        assert indi.source == "DE"
+        assert indi.source == 'evolutionary_operator'
         assert indi.generation == 3
         assert problem.check_bounds_x(indi.x)
 
