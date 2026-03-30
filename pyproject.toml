@@ -9,7 +9,7 @@ readme = "README.md"
 license = "CC-BY-NC-4.0"
 requires-python = ">=3.9"
 dynamic = ["version"]
-authors = [{ name = "aeroopt contributors" }]
+authors = [{ name = "Runze Li" }]
 keywords = ["optimization", "multi-objective", "evolutionary-algorithm", "engineering"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -30,19 +30,27 @@ dependencies = [
 
 [project.optional-dependencies]
 examples = ["matplotlib>=3.5"]
+publish = ["build>=1.0", "twine>=4.0"]
 
 [project.urls]
 Repository = "https://github.com/swayli94/AeroOpt"
 
 [tool.setuptools]
 include-package-data = true
+# Explicit package list avoids Windows path casing (AeroOpt vs aeroopt) producing empty wheels.
+packages = [
+    "aeroopt",
+    "aeroopt.analysis",
+    "aeroopt.core",
+    "aeroopt.optimization",
+    "aeroopt.optimization.hybrid",
+    "aeroopt.optimization.stochastic",
+    "aeroopt.sampling",
+    "aeroopt.utils",
+]
 
 [tool.setuptools.dynamic]
 version = { attr = "aeroopt.__version__" }
 
 [tool.setuptools.package-data]
 aeroopt = ["template_settings.json"]
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["aeroopt*"]
