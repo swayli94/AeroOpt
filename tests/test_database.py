@@ -7,7 +7,7 @@ from openpyxl import load_workbook
 from aeroopt.core.settings import SettingsData, SettingsProblem
 from aeroopt.core.problem import Problem
 from aeroopt.core.individual import Individual
-from aeroopt.core.database import Database
+from aeroopt.core.database import Database, _json_dump_numpy_safe
 
 
 @pytest.fixture(scope="module")
@@ -127,6 +127,39 @@ class TestDatabaseJsonIO:
         assert db2.size == 2
         assert db2.database_type == "total"
         np.testing.assert_allclose(db2.get_xs()[:, 0], [0.12, 0.56], rtol=0, atol=1e-12)
+
+    def test_output_json_handles_numpy_scalar_and_array_fields(self, problem, tmp_path):
+        db = Database(problem, database_type="total")
+        indi = _indi(problem, 0.12, 0.34, ID=3)
+        indi.sum_violation = np.float64(0.0)
+        indi.group = np.int32(7)
+        _append_direct(db, indi)
+        f = tmp_path / "db_numpy.json"
+
+        db.output_database_json(str(f))
+
+        db_json = f.read_text(encoding="utf-8")
+        assert '"group": 7' in db_json
+        assert '"sum_violation": 0.0' in db_json
+
+    def test_json_dump_numpy_safe_composes_user_default(self):
+        payload = {
+            "numpy_value": np.float64(1.25),
+            "custom_value": complex(3.0, 4.0),
+        }
+
+        def user_default(value):
+            if isinstance(value, complex):
+                return {"real": value.real, "imag": value.imag}
+            raise TypeError
+
+        import io
+        buffer = io.StringIO()
+        _json_dump_numpy_safe(payload, buffer, default=user_default)
+        text = buffer.getvalue()
+        assert '"numpy_value": 1.25' in text
+        assert '"real": 3.0' in text
+        assert '"imag": 4.0' in text
 
 
 class TestDatabaseValidation:

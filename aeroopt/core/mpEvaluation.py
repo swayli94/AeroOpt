@@ -68,8 +68,8 @@ class MultiProcessEvaluation():
     >>> # ys: ndarray [n, dim_output]
     >>> # list_succeed: list [bool], length is n
     '''
-    def __init__(self, dim_input: int, dim_output: int, func: Callable = None, 
-                    n_process: int = None, information: bool = True, timeout: float = None):
+    def __init__(self, dim_input: int, dim_output: int, func: Callable|None = None, 
+                    n_process: int|None = None, information: bool = True, timeout: float|None = None):
         '''
         Using concurrent.futures.ProcessPoolExecutor as executor
 
@@ -168,7 +168,7 @@ class MultiProcessEvaluation():
 
         return succeed, y, i
 
-    def evaluate(self, xs: np.ndarray, list_name: List[str] = None, **kwargs):
+    def evaluate(self, xs: np.ndarray, list_name: List[str]|None = None, **kwargs):
         '''
         Evaluation of the multiple inputs `xs`.
         

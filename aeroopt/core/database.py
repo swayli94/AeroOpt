@@ -15,6 +15,34 @@ from aeroopt.core.problem import Problem
 from aeroopt.core.mpEvaluation import MultiProcessEvaluation
 
 
+def _json_numpy_default(value):
+    """
+    Convert common numpy values into JSON-serializable Python values.
+    """
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    raise TypeError(f'Object of type {value.__class__.__name__} is not JSON serializable')
+
+
+def _json_dump_numpy_safe(obj, fp, *args, **kwargs):
+    """
+    Dump JSON while supporting numpy scalar/array values.
+    If user provides `default`, compose it after numpy handling.
+    """
+    user_default = kwargs.get('default')
+    if user_default is None:
+        kwargs['default'] = _json_numpy_default
+    else:
+        def _combined_default(value):
+            if isinstance(value, (np.generic, np.ndarray)):
+                return _json_numpy_default(value)
+            return user_default(value)
+        kwargs['default'] = _combined_default
+    return json.dump(obj, fp, *args, **kwargs)
+
+
 class Database(object):
     '''
     Basic database class.
@@ -785,8 +813,8 @@ class Database(object):
             'individuals': [indi.data for indi in self.individuals]
         }
         
-        with open(fname, 'w') as f:
-            json.dump(database_data, f, indent=4)
+        with open(fname, 'w', encoding='utf-8') as f:
+            _json_dump_numpy_safe(database_data, f, indent=4, ensure_ascii=False)
 
     def read_database_json(self, fname: str):
         '''

@@ -70,16 +70,16 @@ class OptBaseFramework(ABC):
     '''
     def __init__(self, problem: Problem,
             optimization_settings: SettingsOptimization,
-            user_func: Callable = None,
+            user_func: Callable|None = None,
             user_func_supports_parallel: bool = False,
-            mp_evaluation: MultiProcessEvaluation = None,
+            mp_evaluation: MultiProcessEvaluation|None = None,
             logging: bool = True):
         
         self.problem = problem
         self.optimization_settings = optimization_settings
 
-        self.user_func : Callable = user_func
-        self.mp_evaluation : MultiProcessEvaluation = mp_evaluation
+        self.user_func : Callable|None = user_func
+        self.mp_evaluation : MultiProcessEvaluation|None = mp_evaluation
         self.user_func_supports_parallel : bool = user_func_supports_parallel
         self.iteration : int = 0
         self.logging : bool = logging
@@ -162,6 +162,20 @@ class OptBaseFramework(ABC):
                             self.optimization_settings.fname_log)
 
     @property
+    def fname_db_total(self) -> str:
+        '''
+        Name of the total database file.
+        '''
+        return os.path.join(self.dir_summary, self.optimization_settings.fname_db_total)
+
+    @property
+    def fname_db_elite(self) -> str:
+        '''
+        Name of the elite database file.
+        '''
+        return os.path.join(self.dir_summary, self.optimization_settings.fname_db_elite)
+    
+    @property
     def level(self) -> int:
         '''
         Level of the information to be printed on the screen.
@@ -204,6 +218,8 @@ class OptBaseFramework(ABC):
         
         self.select_elite_from_valid()
         
+        self.save_results()
+        
         while not self.termination():
             
             self.iteration += 1
@@ -225,6 +241,8 @@ class OptBaseFramework(ABC):
                 self.post_process.apply()
                 
             self.select_elite_from_valid()
+            
+            self.save_results()
             
             t1 = time.perf_counter()
             self.log(f'Iteration {self.iteration} finished in {(t1-t0)/60.0:.2f} min.', level=1)
@@ -318,6 +336,15 @@ class OptBaseFramework(ABC):
         '''
         return None
     
+    #TODO: Can be adapted
+    def save_results(self) -> None:
+        '''
+        Save the results of the optimization.
+        '''
+        os.makedirs(self.dir_summary, exist_ok=True)
+        self.db_total.output_database_json(self.fname_db_total)
+        self.db_elite.output_database_json(self.fname_db_elite)
+    
     @abstractmethod
     def generate_candidate_individuals(self) -> None:
         '''
@@ -355,6 +382,9 @@ class OptBaseFramework(ABC):
         '''
         n_previous_total = self.db_total.size
         n_previous_valid = self.db_valid.size
+        
+        for indi in self.db_candidate.individuals:
+            indi.generation = self.iteration
         
         self.db_total.merge_with_database(
             self.db_candidate, deepcopy=True, log_func=self.log)
@@ -439,7 +469,7 @@ class PreProcess(ABC):
     def _restrict_x_values_by_valid_database(self, xs: np.ndarray,
                         min_scaled_distance: float = 0.0,
                         max_scaled_distance: float = 1.0,
-                        ID_list: List[int] = None,
+                        ID_list: List[int]|None = None,
                         ) -> np.ndarray:
         '''
         Restrict the input variables of candidates,
@@ -454,7 +484,7 @@ class PreProcess(ABC):
             Minimum scaled distance to the valid individuals in `db_valid`.
         max_scaled_distance: float
             Maximum scaled distance to the valid individuals in `db_valid`.
-        ID_list: List[int]
+        ID_list: List[int]|None
             List of local IDs of the `xs` to be restricted.
             If None, use index of `xs` as the list of IDs.
         
@@ -467,7 +497,7 @@ class PreProcess(ABC):
         n_candidate = xs.shape[0]
 
         if n_candidate <= 0 or self.opt.db_valid.size <= 0:
-            return xs_new
+            return xs
         
         if ID_list is None:
             ID_list = list(range(n_candidate))
@@ -485,9 +515,35 @@ class PreProcess(ABC):
 
         for i in range(n_candidate):
             
-            min_d = max(min_distance[i], 1e-6)
+            min_d = max(min_distance[i], 0.0)
             
-            if min_d < min_scaled_distance:
+            if min_d <= critical_scaled_distance:
+                # Duplicate with the nearest valid individual
+                # Randomly select one from some nearest valid individuals (exclude the duplicated one)
+                if self.opt.db_valid.size <= 1:
+                    xs_new[i] = xs[i]
+                    self.opt.log(f'Candidate #{ID_list[i]:2d}: duplicated with the only valid individual.',
+                            level=2, prefix='  - ')
+                    continue
+                
+                n_near = min(5, self.opt.db_valid.size)
+                indices = np.argsort(distance_matrix[i])[1:n_near]
+                j_valid = np.random.choice(indices)
+                indi_ref = self.opt.analyze_valid.database.individuals[j_valid]
+                
+                _distance = distance_matrix[i, j_valid]
+                _new_d = min_scaled_distance + np.random.uniform(0.2, 0.8)*(max_scaled_distance-min_scaled_distance)
+                ratio = _new_d / _distance
+                
+                xs_new[i] = indi_ref.x + ratio * (xs[i] - indi_ref.x)
+                
+                self.opt.log(f'Candidate #{ID_list[i]:2d}: duplicated with the' +
+                            f' nearest valid individual X (ID={indi_ref.ID:4d}),' +
+                            f' adjust towards another valid individual by ratio {ratio:.2f}.',
+                            level=2, prefix='  - ')
+                continue
+            
+            elif min_d < min_scaled_distance:
                 
                 j_valid = np.argmin(distance_matrix[i])
                 indi_ref = self.opt.analyze_valid.database.individuals[j_valid]
@@ -521,7 +577,7 @@ class PreProcess(ABC):
 
     def _check_pre_processing_feasibility(self, xs: np.ndarray,
                         pre_processing_problem: Problem,
-                        user_pre_processing_func: Callable = None) -> Tuple[List[bool], List[int]]:
+                        user_pre_processing_func: Callable|None = None) -> Tuple[List[bool], List[int]]:
         '''
         Check the feasibility of the input variables after pre-processing:
         - check individual's `valid_evaluation` flag
@@ -533,7 +589,7 @@ class PreProcess(ABC):
             Input variables of the candidates.
         pre_processing_problem: Problem
             Problem for pre-processing.
-        user_pre_processing_func: Callable
+        user_pre_processing_func: Callable|None
             User-defined function to evaluate the individuals.
             If None, use external evaluation script.
         
@@ -572,10 +628,11 @@ class PreProcess(ABC):
             
         return feasibility_flags, ID_list
     
-    def _adjust_x_values_by_valid_database(self, xs: np.ndarray, feasibility_flags: List[bool],
+    def _adjust_x_values_by_valid_database(self, xs: np.ndarray,
+                    feasibility_flags: List[bool],
                     min_scaled_distance: float = 0.01,
                     max_scaled_distance: float = 0.10,
-                    ID_list: List[int] = None) -> np.ndarray:
+                    ID_list: List[int]|None = None) -> np.ndarray:
         '''
         Adjust the input variables of candidates towards the valid individuals in `db_valid`.
         
@@ -604,15 +661,15 @@ class PreProcess(ABC):
 
         # Keep compatibility with list/ndarray inputs, but fail fast when
         # upstream feasibility checks return inconsistent lengths.
-        feasibility_flags = np.asarray(feasibility_flags, dtype=bool).reshape(-1)
+        feasibility_flags_arr = np.asarray(feasibility_flags, dtype=bool).reshape(-1)
         n_candidate = xs_new.shape[0]
-        if feasibility_flags.size != n_candidate:
+        if feasibility_flags_arr.size != n_candidate:
             raise ValueError(
-                f"Length mismatch: feasibility_flags has {feasibility_flags.size} "
+                f"Length mismatch: feasibility_flags has {feasibility_flags_arr.size} "
                 f"entries, but xs has {n_candidate} candidates."
             )
         
-        index_infeasible = np.where(~feasibility_flags)[0]
+        index_infeasible = np.where(~feasibility_flags_arr)[0]
         
         if ID_list is not None:
             ID_list_infeasible = [ID_list[i] for i in index_infeasible]

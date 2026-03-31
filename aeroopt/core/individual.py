@@ -25,14 +25,14 @@ class Individual(object):
         Output variables of the individual.
     '''
     def __init__(self, problem: Problem, x: np.ndarray,
-                    ID: int = None, y: np.ndarray = None):
+                    ID: int | None = None, y: np.ndarray | None = None):
         
         self.problem = problem
         self.name_problem = problem.name
         
         self.x : np.ndarray = x
-        self.y : np.ndarray = y
-        self.ID : int = ID
+        self.y : np.ndarray | None = y
+        self.ID : int | None = ID
 
         self.valid_evaluation : bool = True
         self.source : str = 'default'
@@ -40,10 +40,10 @@ class Individual(object):
         
         #* Scaled data
         self._scaled_x : np.ndarray = self.problem.scale_x(self.x)
-        self._scaled_y : np.ndarray = None
+        self._scaled_y : np.ndarray | None = None
         
         #* Constraints
-        self.constraint_violations : np.ndarray = None
+        self.constraint_violations : np.ndarray | None = None
         self.sum_violation : float = 0.0
         
         #* Parameters for analysis
@@ -139,7 +139,7 @@ class Individual(object):
         '''
         Return integer i representing the source of individual
         '''
-        return SettingsData.source_dict[self.source]
+        return SettingsData.data_source_dict[self.source]
     
     @staticmethod
     def int2source(i: int) -> str:
@@ -147,7 +147,7 @@ class Individual(object):
         Convert integer i to the source name of individual
         '''
         name = 'unknown'
-        for key, value in Individual.source_dict.items():
+        for key, value in SettingsData.data_source_dict.items():
             if value == i:
                 name = key
         return name
@@ -161,7 +161,7 @@ class Individual(object):
         k = 0
         for i in range(self.problem.n_output):
             if abs(self.problem.output_type[i]) == 1:
-                obj[k] = self.y[i]
+                obj[k] = self.y[i] if self.y is not None else 0.0
                 k += 1
         return obj
 
@@ -213,12 +213,14 @@ class Individual(object):
         '''
         Scaled output variables of this individual.
         '''
+        if self.y is None:
+            return np.zeros(self.problem.n_output, dtype=float)
         if self._scaled_y is None:
             self._scaled_y = self.problem.scale_y(self.y)
         return self._scaled_y
 
     def eval_constraints(self,
-                use_another_problem: Problem = None) -> Tuple[float, np.ndarray]:
+                use_another_problem: Problem | None = None) -> Tuple[float, np.ndarray]:
         '''
         Evaluate constraints of this individual.
         

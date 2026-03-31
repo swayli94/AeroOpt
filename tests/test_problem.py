@@ -60,17 +60,34 @@ class TestProblemBoundsAndScale:
         assert problem.check_bounds_y(np.array([2.0e6])) == False
 
     def test_apply_bounds_x(self, problem):
-        x = np.array([1.5])
-        out = problem.apply_bounds_x(x)
-        np.testing.assert_array_almost_equal(x, [1.0])
-        assert out is False
-        x2 = np.array([0.5])
-        assert problem.apply_bounds_x(x2) is True
+        x = np.array([-0.2, 1.5])
+        within_bounds = problem.apply_bounds_x(x)
+        np.testing.assert_array_almost_equal(x, [0.0, 1.0])
+        assert within_bounds is False
+
+        x2 = np.array([[0.2], [1.2], [-0.1]])
+        within_bounds2 = problem.apply_bounds_x(x2)
+        np.testing.assert_array_almost_equal(x2, [[0.2], [1.0], [0.0]])
+        assert within_bounds2 is False
+
+        x3 = np.array([0.5])
+        assert problem.apply_bounds_x(x3) is True
+        np.testing.assert_array_almost_equal(x3, [0.5])
 
     def test_apply_bounds_y(self, problem):
-        y = np.array([2.0e6])
-        problem.apply_bounds_y(y)
-        np.testing.assert_array_almost_equal(y, [1.0e6])
+        y = np.array([-2.0e6, 2.0e6])
+        within_bounds = problem.apply_bounds_y(y)
+        np.testing.assert_array_almost_equal(y, [-1.0e6, 1.0e6])
+        assert within_bounds is False
+
+        y2 = np.array([[0.0], [2.0e6], [-2.0e6]])
+        within_bounds2 = problem.apply_bounds_y(y2)
+        np.testing.assert_array_almost_equal(y2, [[0.0], [1.0e6], [-1.0e6]])
+        assert within_bounds2 is False
+
+        y3 = np.array([0.0])
+        assert problem.apply_bounds_y(y3) is True
+        np.testing.assert_array_almost_equal(y3, [0.0])
 
     def test_scale_x(self, problem):
         x = np.array([0.5])
