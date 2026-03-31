@@ -208,7 +208,7 @@ class _ConcretePreProcess(PreProcess):
         pass
 
 
-def test_preprocess_restrict_x_values_by_valid_database():
+def test_preprocess_restrict_x_values_by_valid_database(monkeypatch):
     problem = _DummyProblemForPreProcess()
     opt = _preprocess_dummy_opt(
         problem,
@@ -219,17 +219,24 @@ def test_preprocess_restrict_x_values_by_valid_database():
     )
     pp = _ConcretePreProcess(opt)
 
+    # Make duplicated-branch adjustment deterministic.
+    monkeypatch.setattr(np.random, "uniform", lambda low, high: 0.5)
+    monkeypatch.setattr(np.random, "choice", lambda arr: arr[0])
+
     xs = np.array([[0.00], [0.50], [1.20]], dtype=float)
     xs_new = pp._restrict_x_values_by_valid_database(
         xs, min_scaled_distance=0.05, max_scaled_distance=0.30
     )
 
-    # 1) too close -> move to at least critical distance (0.2) from x_ref=0.2
-    assert np.allclose(xs_new[0], np.array([0.0]))
+    # 1) min_d <= critical -> treated as duplicated, then adjusted from another valid individual.
+    # _new_d = 0.2 + 0.5*(0.3-0.2) = 0.25, ratio = 0.25 / 0.6.
+    assert np.allclose(xs_new[0], np.array([0.4666666667]))
     # 2) too far -> pull towards x_ref=0.2 to max distance 0.3 => 0.2 + 0.3*(0.3/0.35)
     assert np.allclose(xs_new[1], np.array([0.4571428571]))
-    # 3) already in range [0.2, 0.3] around nearest valid -> unchanged by distance rule, then bounded
-    assert np.allclose(xs_new[2], np.array([1.0]))
+    # 3) min_d <= critical as well -> duplicated branch, adjusted from the other valid individual.
+    # nearest valid is x_ref=0.8, so "other" valid is x_ref=0.2:
+    # ratio = 0.25 / 0.5 = 0.5 => 0.2 + 0.5*(1.2-0.2) = 0.7.
+    assert np.allclose(xs_new[2], np.array([0.7]))
 
 
 def test_preprocess_check_feasibility_sets_calculation_folder(monkeypatch):
