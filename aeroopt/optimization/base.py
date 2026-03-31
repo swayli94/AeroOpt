@@ -518,7 +518,7 @@ class PreProcess(ABC):
             min_d = max(min_distance[i], 0.0)
             
             if min_d <= critical_scaled_distance:
-                # Duplicate with the nearest valid individual
+                # Duplicated with a valid individual (lower than the problem's critical scaled distance).
                 # Randomly select one from some nearest valid individuals (exclude the duplicated one)
                 if self.opt.db_valid.size <= 1:
                     xs_new[i] = xs[i]
@@ -544,6 +544,7 @@ class PreProcess(ABC):
                 continue
             
             elif min_d < min_scaled_distance:
+                # Too close to the nearest valid individual.
                 
                 j_valid = np.argmin(distance_matrix[i])
                 indi_ref = self.opt.analyze_valid.database.individuals[j_valid]
@@ -556,6 +557,7 @@ class PreProcess(ABC):
                             level=2, prefix='  - ')
                 
             elif min_d > max_scaled_distance:
+                # Too far from the nearest valid individual.
                 
                 j_valid = np.argmin(distance_matrix[i])
                 indi_ref = self.opt.analyze_valid.database.individuals[j_valid]
