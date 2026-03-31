@@ -37,17 +37,10 @@ Repository = "https://github.com/swayli94/AeroOpt"
 
 [tool.setuptools]
 include-package-data = true
-# Explicit package list avoids Windows path casing (AeroOpt vs aeroopt) producing empty wheels.
-packages = [
-    "aeroopt",
-    "aeroopt.analysis",
-    "aeroopt.core",
-    "aeroopt.optimization",
-    "aeroopt.optimization.hybrid",
-    "aeroopt.optimization.stochastic",
-    "aeroopt.sampling",
-    "aeroopt.utils",
-]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aeroopt*"]
 
 [tool.setuptools.dynamic]
 version = { attr = "aeroopt.__version__" }
