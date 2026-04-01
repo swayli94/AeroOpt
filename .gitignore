@@ -1,10 +1,12 @@
 
 *.pyc
 
+.vscode/
 build/
 dist/
 *.egg-info/
 
+pyrightconfig.json
 old/
 
 # Example files

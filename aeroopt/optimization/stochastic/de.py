@@ -1,9 +1,9 @@
 '''
 Differential evolution (DE/rand/1/bin).
 
-Parents each iteration are a truncated pool of size ``population_size`` from
-``db_valid`` (same environmental selection as NSGA-II: ranks + crowding),
-so the operator fits the archive-based workflow of ``OptBaseFramework``.
+Parents each iteration are a truncated pool of size `population_size` from
+`db` (same environmental selection as NSGA-II: ranks + crowding),
+so the operator fits the archive-based workflow of `OptBaseFramework`.
 '''
 
 from __future__ import annotations
@@ -31,27 +31,27 @@ class DiffEvolution(Algorithm):
 
     @staticmethod
     def generate_candidate_individuals(
-            db_valid: Database,
+            db: Database,
             db_candidate: Database,
             population_size: int,
             iteration: int,
-            scale_factor: float,
-            cross_rate: float,
-            rng: np.random.Generator = None,
+            scale_factor: float = 0.5,
+            cross_rate: float = 0.8,
+            rng: np.random.Generator|None = None,
             ) -> None:
         '''
-        Build a parent pool from `db_valid` (truncation with dominance-based algorithm),
+        Build a parent pool from `db` (truncation with dominance-based algorithm),
         then apply binomial crossover and mutation to generate candidate individuals.
         '''
-        if db_valid.size <= 0:
+        if db.size <= 0:
             raise RuntimeError(
-                'No valid individuals available for differential evolution.')
+                'No individuals available for differential evolution.')
 
         if rng is None:
             rng = np.random.default_rng()
 
         temp_parents = DominanceBasedAlgorithm.build_temporary_parent_database(
-            db_valid, population_size)
+            db, population_size)
         n_pop = temp_parents.size
         problem = db_candidate.problem
 
@@ -108,10 +108,10 @@ class OptDE(OptBaseFramework):
             problem: Problem,
             optimization_settings: SettingsOptimization,
             algorithm_settings: SettingsDE,
-            user_func: Callable = None,
-            mp_evaluation: MultiProcessEvaluation = None,
+            user_func: Callable|None = None,
+            mp_evaluation: MultiProcessEvaluation|None = None,
             user_func_supports_parallel: bool = False,
-            rng: np.random.Generator = None,
+            rng: np.random.Generator|None = None,
             logging: bool = True,
             ):
         super().__init__(
@@ -127,10 +127,15 @@ class OptDE(OptBaseFramework):
 
     def generate_candidate_individuals(self) -> None:
         '''
-        Generate one trial vector per parent in the truncated valid archive.
+        Generate candidate individuals from the total or valid database.
         '''
+        if self.db_valid.size <= 0:
+            _db = self.db_total
+        else:
+            _db = self.db_valid
+        
         DiffEvolution.generate_candidate_individuals(
-            db_valid=self.db_valid,
+            db=_db,
             db_candidate=self.db_candidate,
             population_size=self.population_size,
             iteration=self.iteration,

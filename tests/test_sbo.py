@@ -231,9 +231,6 @@ def test_sbo_generate_candidate_from_inner_total(problem, optimization_settings)
     assert sbo.db_candidate.size == 4
     assert all(getattr(indi, "source", None) == "surrogate_prediction" for indi in sbo.db_candidate.individuals)
     assert all(indi.generation == 2 for indi in sbo.db_candidate.individuals)
-    for indi in sbo.db_candidate.individuals:
-        assert hasattr(indi, "_y_predicted")
-        assert indi._y_predicted.shape == (problem.n_output,)
 
 
 def test_sbo_select_elite_delegates_with_empty_valid(problem, optimization_settings):

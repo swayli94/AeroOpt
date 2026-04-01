@@ -111,7 +111,7 @@ def test_opt_rvea_select_elite_from_valid(problem, optimization_settings, settin
 def test_build_temporary_parent_database_empty_raises(problem):
     db = Database(problem, database_type="valid")
     state = RVEAApdState(DecompositionBasedAlgorithm.das_dennis_reference_points(1, 1))
-    with pytest.raises(ValueError, match="empty valid"):
+    with pytest.raises(ValueError, match="empty database"):
         RVEA.build_temporary_parent_database(
             db, population_size=4, state=state, iteration=1,
             max_iterations=10, alpha=2.0)
@@ -121,7 +121,7 @@ def test_generate_candidate_individuals_requires_valid_population(problem):
     db_valid = Database(problem, database_type="valid")
     db_candidate = Database(problem, database_type="population")
     state = RVEAApdState(DecompositionBasedAlgorithm.das_dennis_reference_points(1, 1))
-    with pytest.raises(RuntimeError, match="No valid individuals"):
+    with pytest.raises(RuntimeError, match="No individuals available"):
         RVEA.generate_candidate_individuals(
             db_valid, db_candidate, population_size=4, iteration=1,
             state=state, max_iterations=10, alpha=2.0,

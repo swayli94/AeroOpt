@@ -8,7 +8,7 @@ with box constraints. IEEE TEC, 18(4), 577-601.
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Callable
 
 import numpy as np
 
@@ -150,37 +150,37 @@ class NSGAIII(Algorithm):
 
     @staticmethod
     def environmental_selection_indices(
-            combined: Database,
+            db: Database,
             population_size: int,
-            n_partitions: int,
+            n_partitions: int = 1,
             ) -> List[int]:
         '''
         Indices of individuals to keep (length <= population_size).
         '''
-        if combined.size <= 0:
+        if db.size <= 0:
             return []
-        index_fronts = DominanceBasedAlgorithm.non_dominated_ranking(combined)
-        n_obj = combined.problem.n_objective
+        index_fronts = DominanceBasedAlgorithm.non_dominated_ranking(db)
+        n_obj = db.problem.n_objective
         p = max(1, int(n_partitions))
         ref_pts = DecompositionBasedAlgorithm.das_dennis_reference_points(n_obj, p)
         return NSGAIII._select_population_indices_nsgaiii(
-            combined, index_fronts, population_size, ref_pts)
+            db, index_fronts, population_size, ref_pts)
 
     @staticmethod
     def build_temporary_parent_database(
-            db_valid: Database,
+            db: Database,
             population_size: int,
             n_partitions: Optional[int] = None,
             ) -> Database:
         '''
-        Temporary parent pool from the valid archive via NSGA-III environmental
-        selection (reference points). Deep copy; does not modify `db_valid`.
+        Temporary parent pool from the population database via NSGA-III environmental
+        selection (reference points). Deep copy; does not modify `db`.
         '''
-        if db_valid.size <= 0:
-            raise ValueError("Cannot build parent database from an empty valid archive.")
+        if db.size <= 0:
+            raise ValueError("Cannot build parent database from an empty archive.")
 
-        db_work = db_valid.get_sub_database(
-            index_list=list(range(db_valid.size)), deepcopy=True)
+        db_work = db.get_sub_database(
+            index_list=list(range(db.size)), deepcopy=True)
         DominanceBasedAlgorithm.non_dominated_ranking(
             db_work)
         if db_work.size <= population_size:
@@ -189,13 +189,13 @@ class NSGAIII(Algorithm):
         p = n_partitions
         if p is None:
             p = DecompositionBasedAlgorithm.suggest_n_partitions(
-                db_valid.problem.n_objective, population_size)
+                db.problem.n_objective, population_size)
         idx = NSGAIII.environmental_selection_indices(db_work, population_size, p)
         return db_work.get_sub_database(index_list=idx, deepcopy=True)
 
     @staticmethod
     def generate_candidate_individuals(
-            db_valid: Database,
+            db: Database,
             db_candidate: Database,
             population_size: int,
             iteration: int,
@@ -204,20 +204,20 @@ class NSGAIII(Algorithm):
             mut_rate: float = 1.0,
             pow_poly: float = 20.0,
             n_partitions: Optional[int] = None,
-            rng: np.random.Generator = None,
+            rng: np.random.Generator|None = None,
             ) -> None:
         '''
         Like `NSGAII.generate_candidate_individuals`, but the temporary parent
-        pool uses NSGA-III reference-point truncation from `db_valid`.
+        pool uses NSGA-III reference-point truncation from `db`.
         '''
-        if db_valid.size <= 0:
-            raise RuntimeError("No valid individuals available for NSGA-III evolution.")
+        if db.size <= 0:
+            raise RuntimeError("No individuals available for NSGA-III evolution.")
 
         if rng is None:
             rng = np.random.default_rng()
 
         temp_parents = NSGAIII.build_temporary_parent_database(
-            db_valid, population_size, n_partitions=n_partitions)
+            db, population_size, n_partitions=n_partitions)
         mating_population = binary_tournament_selection(
             pool=temp_parents, n_select=population_size, rng=rng)
 
@@ -277,10 +277,10 @@ class OptNSGAIII(OptBaseFramework):
             problem: Problem,
             optimization_settings: SettingsOptimization,
             algorithm_settings: SettingsNSGAIII,
-            user_func=None,
+            user_func: Callable|None = None,
             user_func_supports_parallel: bool = False,
-            mp_evaluation: MultiProcessEvaluation = None,
-            rng: np.random.Generator = None,
+            mp_evaluation: MultiProcessEvaluation|None = None,
+            rng: np.random.Generator|None = None,
             logging: bool = True,
             ):
 
@@ -301,8 +301,13 @@ class OptNSGAIII(OptBaseFramework):
             self.algorithm_settings.mut_rate
             / max(self.problem.n_input, 1))
 
+        if self.db_valid.size <= 0:
+            _db = self.db_total
+        else:
+            _db = self.db_valid
+
         NSGAIII.generate_candidate_individuals(
-            db_valid=self.db_valid,
+            db=_db,
             db_candidate=self.db_candidate,
             population_size=self.population_size,
             iteration=self.iteration,

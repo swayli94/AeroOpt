@@ -24,15 +24,9 @@ class NSGAII(Algorithm):
     '''
     NSGA-II operators.
     '''
-
-    @staticmethod
-    def build_temporary_parent_database(db_valid: Database, population_size: int) -> Database:
-        return DominanceBasedAlgorithm.build_temporary_parent_database(
-            db_valid, population_size)
-
     @staticmethod
     def generate_candidate_individuals(
-            db_valid: Database,
+            db: Database,
             db_candidate: Database,
             population_size: int,
             iteration: int,
@@ -40,17 +34,17 @@ class NSGAII(Algorithm):
             pow_sbx: float = 20.0,
             mut_rate: float = 1.0,
             pow_poly: float = 20.0,
-            rng: np.random.Generator = None,
+            rng: np.random.Generator|None = None,
             ) -> None:
-        if db_valid.size <= 0:
+        if db.size <= 0:
             raise RuntimeError(
-                "No valid individuals available for NSGA-II evolution.")
+                "No individuals available for NSGA-II evolution.")
 
         if rng is None:
             rng = np.random.default_rng()
 
-        temp_parents = NSGAII.build_temporary_parent_database(
-            db_valid, population_size)
+        temp_parents = DominanceBasedAlgorithm.build_temporary_parent_database(
+            db, population_size)
         mating_population = binary_tournament_selection(
             pool=temp_parents, n_select=population_size, rng=rng)
 
@@ -110,10 +104,10 @@ class OptNSGAII(OptBaseFramework):
         problem: Problem,
         optimization_settings: SettingsOptimization,
         algorithm_settings: SettingsNSGAII,
-        user_func: Callable = None,
-        mp_evaluation: MultiProcessEvaluation = None,
+        user_func: Callable|None = None,
+        mp_evaluation: MultiProcessEvaluation|None = None,
         user_func_supports_parallel: bool = False,
-        rng: np.random.Generator = None,
+        rng: np.random.Generator|None = None,
         logging: bool = True,
         ):
         
@@ -133,19 +127,25 @@ class OptNSGAII(OptBaseFramework):
     
     def generate_candidate_individuals(self) -> None:
         '''
-        Generate candidate individuals from the valid database.
+        Generate candidate individuals from the population database.
 
         A temporary parent database (size `population_size`) is built from
-        `db_valid` via `build_temporary_parent_database`; tournament selection
-        and variation use only that pool. `db_valid` is not reinterpreted as
-        the parent generation.
+        `db` via `DominanceBasedAlgorithm.build_temporary_parent_database`; 
+        tournament selection and variation use only that pool. 
+        `db` can be a valid archive or total pool.
         '''
         mut_rate = self.algorithm_settings.mut_rate / max(self.problem.n_input, 1)
+        
+        if self.db_valid.size <= 0:
+            _db = self.db_total
+        else:
+            _db = self.db_valid
+        
         NSGAII.generate_candidate_individuals(
-            self.db_valid,
-            self.db_candidate,
-            self.population_size,
-            self.iteration,
+            db=_db,
+            db_candidate=self.db_candidate,
+            population_size=self.population_size,
+            iteration=self.iteration,
             cross_rate=self.algorithm_settings.cross_rate,
             pow_sbx=self.algorithm_settings.pow_sbx,
             mut_rate=mut_rate,

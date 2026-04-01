@@ -89,7 +89,7 @@ class MOEAD(Algorithm):
 
     @staticmethod
     def generate_candidate_individuals(
-            db_valid: Database,
+            db: Database,
             db_candidate: Database,
             ref_dirs: np.ndarray,
             neighbors: np.ndarray,
@@ -116,8 +116,8 @@ class MOEAD(Algorithm):
         
         Parameters:
         -----------
-        db_valid: Database
-            Valid database.
+        db: Database
+            Population database.
         db_candidate: Database
             Candidate database.
         ref_dirs: np.ndarray
@@ -152,8 +152,8 @@ class MOEAD(Algorithm):
         _ = decomposition_method, pbi_theta, ideal
 
         n_pop = int(ref_dirs.shape[0])
-        if db_valid.size <= 0:
-            raise RuntimeError("No valid individuals available for MOEA/D.")
+        if db.size <= 0:
+            raise RuntimeError("No individuals available for MOEA/D.")
 
         db_candidate.empty_database()
         pending_list.clear()
@@ -167,17 +167,17 @@ class MOEAD(Algorithm):
                 prob_neighbor, rng)
             id1 = int(slot_ids[p_slots[0]])
             id2 = int(slot_ids[p_slots[1]])
-            i1 = db_valid.get_index_from_ID(id1)
-            i2 = db_valid.get_index_from_ID(id2)
+            i1 = db.get_index_from_ID(id1)
+            i2 = db.get_index_from_ID(id2)
             x1, x2 = sbx_crossover(
-                db_valid.individuals[i1].x,
-                db_valid.individuals[i2].x,
+                db.individuals[i1].x,
+                db.individuals[i2].x,
                 problem=db_candidate.problem,
-                cross_rate=cross_rate, pow_sbx=pow_sbx)
+                cross_rate=cross_rate, pow_sbx=pow_sbx, rng=rng)
             pick = x1 if rng.random() < 0.5 else x2
             pick = polynomial_mutation(
                 pick, problem=db_candidate.problem,
-                mut_rate=mut_rate, pow_poly=pow_poly)
+                mut_rate=mut_rate, pow_poly=pow_poly, rng=rng)
 
             indi = Individual(problem=db_candidate.problem, x=pick)
             indi.source = 'evolutionary_operator'
@@ -262,7 +262,7 @@ class OptMOEAD(OptBaseFramework):
             algorithm_settings: SettingsMOEAD,
             user_func=None,
             user_func_supports_parallel: bool = False,
-            mp_evaluation: MultiProcessEvaluation = None,
+            mp_evaluation: MultiProcessEvaluation|None = None,
             logging: bool = True,
             ):
 
@@ -423,9 +423,14 @@ class OptMOEAD(OptBaseFramework):
         mute_rate = (
             self.algorithm_settings.mut_rate
             / max(self.problem.n_input, 1))
-
+        
+        if self.db_valid.size <= 0:
+            _db = self.db_total
+        else:
+            _db = self.db_valid
+        
         MOEAD.generate_candidate_individuals(
-            db_valid=self.db_valid,
+            db=_db,
             db_candidate=self.db_candidate,
             ref_dirs=self._ref_dirs,
             neighbors=self._neighbors,

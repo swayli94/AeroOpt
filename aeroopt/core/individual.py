@@ -25,13 +25,14 @@ class Individual(object):
         Output variables of the individual.
     '''
     def __init__(self, problem: Problem, x: np.ndarray,
-                    ID: int | None = None, y: np.ndarray | None = None):
+                    ID: int | None = None,
+                    y: np.ndarray | None = None):
         
         self.problem = problem
         self.name_problem = problem.name
         
         self.x : np.ndarray = x
-        self.y : np.ndarray | None = y
+        self.y : np.ndarray = np.array([]) if y is None else y
         self.ID : int | None = ID
 
         self.valid_evaluation : bool = True

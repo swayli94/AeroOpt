@@ -4,6 +4,7 @@ Settings of optimization framework and algorithms.
 
 import os
 import json
+from typing import Dict, Any
 
 # JSON entry metadata; not applied as optimization fields.
 _SETTINGS_OPTIMIZATION_METADATA_KEYS = frozenset({'type', 'name'})
@@ -38,6 +39,7 @@ class SettingsOptimization(object):
         self.info_level_on_screen : int = 1
         self.critical_potential_x : float = 0.2
         
+        self.settings: Dict[str, Any] = {}
         self.read_settings(fname_settings)
 
     def read_settings(self, fname_settings: str) -> None:
@@ -59,6 +61,7 @@ class SettingsOptimization(object):
         if settings_opt is None:
             raise ValueError(f'SettingsOptimization {self.name} not found in {fname_settings}.')
 
+        self.settings = settings_opt
         for key, value in settings_opt.items():
             if key in _SETTINGS_OPTIMIZATION_METADATA_KEYS:
                 continue
@@ -252,7 +255,7 @@ class SettingsNSGAIII(object):
         self.pow_sbx: float = 20.0
         self.pow_poly: float = 20.0
         self.reserve_ratio: float = 0.3
-        self.n_partitions: int = None
+        self.n_partitions: int|None = None
 
         self.read_settings(fname_settings)
 
@@ -306,7 +309,7 @@ class SettingsRVEA(object):
         self.pow_sbx: float = 20.0
         self.pow_poly: float = 20.0
         self.reserve_ratio: float = 0.3
-        self.n_partitions: int = None
+        self.n_partitions: int|None = None
         self.alpha: float = 2.0
         self.adapt_freq: float = 0.1
 
@@ -374,7 +377,7 @@ class SettingsMOEAD(object):
         self.mut_rate: float = 1.0
         self.pow_sbx: float = 20.0
         self.pow_poly: float = 20.0
-        self.n_partitions: int = None
+        self.n_partitions: int|None = None
         self.n_neighbors: int = 20
         self.prob_neighbor_mating: float = 0.9
         self.decomposition: str = 'auto'

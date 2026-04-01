@@ -50,9 +50,9 @@ def test_settings_nrbo_reads_template(settings_path):
 def test_generate_candidate_individuals_requires_valid_population(problem):
     db_valid = Database(problem, database_type="valid")
     db_candidate = Database(problem, database_type="population")
-    with pytest.raises(RuntimeError, match="No valid individuals"):
+    with pytest.raises(RuntimeError, match="No individuals available"):
         NRBO.generate_candidate_individuals(
-            db_valid=db_valid,
+            db=db_valid,
             db_candidate=db_candidate,
             population_size=4,
             iteration=1,
@@ -75,7 +75,7 @@ def test_generate_candidate_individuals_builds_offspring(problem):
 
     db_candidate = Database(problem, database_type="population")
     NRBO.generate_candidate_individuals(
-        db_valid=db_valid,
+        db=db_valid,
         db_candidate=db_candidate,
         population_size=4,
         iteration=2,

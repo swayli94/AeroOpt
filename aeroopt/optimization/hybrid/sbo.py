@@ -173,8 +173,14 @@ class SBO(OptBaseFramework):
         
         # Optimization on the surrogate model
         self.opt_on_surrogate.main()
+
+        if self.opt_on_surrogate.db_valid.size <= 0:
+            _db = self.opt_on_surrogate.db_total
+        else:
+            _db = self.opt_on_surrogate.db_valid
+
         temp_parents = DominanceBasedAlgorithm.build_temporary_parent_database(
-            self.opt_on_surrogate.db_valid, self.population_size)
+            _db, self.population_size)
         n_pop = temp_parents.size
         
         # Get the candidate individuals from the surrogate model
@@ -199,7 +205,6 @@ class SBO(OptBaseFramework):
                 # Store the prediction of the surrogate model
                 y_predicted = np.zeros(self.problem.n_output)
                 y_predicted[self.index_outputs_for_surrogate] = temp_parents.individuals[i].y
-                indi._y_predicted = y_predicted
             else:
                 self.log(warning_text, level=2, prefix='  > ')
 

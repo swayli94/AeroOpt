@@ -128,7 +128,7 @@ def test_generate_candidate_individuals_requires_valid_population(problem_biobj)
     ideal = np.array([0.0, 0.0])
     pending: list = []
     rng = np.random.default_rng(0)
-    with pytest.raises(RuntimeError, match="No valid individuals"):
+    with pytest.raises(RuntimeError, match="No individuals available"):
         MOEAD.generate_candidate_individuals(
             db_valid,
             db_candidate,

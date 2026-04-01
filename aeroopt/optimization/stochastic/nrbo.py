@@ -149,12 +149,12 @@ class NRBO(Algorithm):
 
     @staticmethod
     def generate_candidate_individuals(
-            db_valid: Database,
+            db: Database,
             db_candidate: Database,
             population_size: int,
             iteration: int,
-            max_iterations: int,
-            deciding_factor: float,
+            max_iterations: int = 20,
+            deciding_factor: float = 0.6,
             rng: np.random.Generator | None = None,
             ) -> None:
         '''
@@ -162,8 +162,8 @@ class NRBO(Algorithm):
 
         Parameters:
         -----------
-        db_valid: Database
-            Valid archive used to build the parent pool.
+        db: Database
+            Population database.
         db_candidate: Database
             Output database to be overwritten by new candidates.
         population_size: int
@@ -177,16 +177,16 @@ class NRBO(Algorithm):
         rng: np.random.Generator
             Optional NumPy random generator.
         '''
-        if db_valid.size <= 0:
-            raise RuntimeError('No valid individuals available for NRBO evolution.')
-        if db_valid.problem.n_objective != 1:
+        if db.size <= 0:
+            raise RuntimeError('No individuals available for NRBO evolution.')
+        if db.problem.n_objective != 1:
             raise ValueError('NRBO supports only single-objective problems.')
 
         if rng is None:
             rng = np.random.default_rng()
 
         parents = DominanceBasedAlgorithm.build_temporary_parent_database(
-            db_valid, population_size)
+            db, population_size)
         n_pop = parents.size
         if n_pop <= 0:
             raise RuntimeError('Empty parent pool while generating NRBO candidates.')
@@ -276,10 +276,10 @@ class OptNRBO(OptBaseFramework):
             problem: Problem,
             optimization_settings: SettingsOptimization,
             algorithm_settings: SettingsNRBO,
-            user_func: Callable = None,
-            mp_evaluation: MultiProcessEvaluation = None,
+            user_func: Callable|None = None,
+            mp_evaluation: MultiProcessEvaluation|None = None,
             user_func_supports_parallel: bool = False,
-            rng: np.random.Generator = None,
+            rng: np.random.Generator|None = None,
             logging: bool = True,
             ):
         super().__init__(
@@ -300,8 +300,13 @@ class OptNRBO(OptBaseFramework):
         '''
         Generate NRBO candidates for the current iteration.
         '''
+        if self.db_valid.size <= 0:
+            _db = self.db_total
+        else:
+            _db = self.db_valid
+
         NRBO.generate_candidate_individuals(
-            db_valid=self.db_valid,
+            db=_db,
             db_candidate=self.db_candidate,
             population_size=self.population_size,
             iteration=self.iteration,

@@ -50,7 +50,7 @@ def test_sample_de_rand_1_indices_single_population():
 def test_generate_candidate_individuals_requires_valid_population(problem):
     db_valid = Database(problem, database_type="valid")
     db_candidate = Database(problem, database_type="population")
-    with pytest.raises(RuntimeError, match="No valid individuals"):
+    with pytest.raises(RuntimeError, match="No individuals available"):
         DiffEvolution.generate_candidate_individuals(
             db_valid,
             db_candidate,

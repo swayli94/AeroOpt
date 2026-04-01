@@ -7,10 +7,10 @@ import time
 
 import numpy as np
 import numexpr as ne
-import pyDOE
+import pydoe
 from scipy.spatial.distance import cdist
 
-from typing import Tuple, List
+from typing import Any, Tuple, List, cast
 
 from aeroopt.core.settings import SettingsData, SettingsProblem
 
@@ -330,8 +330,12 @@ class Problem(object):
             constraint violations, the constraint is violated if the violation is greater than 0.
             All the original constraint values are returned.
         '''
+        y = np.asarray(y, dtype=float)
+        if y.size == 0 and self.n_output > 0:
+            y = np.zeros(self.n_output, dtype=float)
+
         violations = np.zeros(self.n_constraint)
-        
+
         i_constraint = 0
         for constraint_str in self.problem_settings.constraint_strings:
             violation = self.eval_constraint_string(constraint_str, x, y)
@@ -385,7 +389,7 @@ class Problem(object):
 
         result = ne.evaluate(new_formula)
   
-        return result
+        return float(result)
 
     #* Pareto dominance.
 
@@ -486,7 +490,7 @@ class Problem(object):
     
     def latin_hypercube_sampling(self, n: int,
                 scaled_values: bool = False,
-                sample_variables: List[str] = None) -> np.ndarray:
+                sample_variables: List[str]|None = None) -> np.ndarray:
         '''
         Latin Hypercube Sampling for the input/output vectors.
         
@@ -514,7 +518,7 @@ class Problem(object):
         else:
             raise ValueError('Invalid sample_variables.')
         
-        v_samples = pyDOE.lhs(n_variables, samples=n, criterion='m')
+        v_samples = pydoe.lhs(n_variables, samples=n, criterion='m')
         
         if scaled_values:
             return v_samples
@@ -548,13 +552,17 @@ class Problem(object):
         '''
         Check if the input vector is within the bounds.
         '''
-        return np.all(x >= self.data_settings.input_low) and np.all(x <= self.data_settings.input_upp)
-    
+        return bool(
+            np.all(x >= self.data_settings.input_low) and np.all(x <= self.data_settings.input_upp)
+        )
+
     def check_bounds_y(self, y: np.ndarray) -> bool:
         '''
         Check if the output vector is within the bounds.
         '''
-        return np.all(y >= self.data_settings.output_low) and np.all(y <= self.data_settings.output_upp)
+        return bool(
+            np.all(y >= self.data_settings.output_low) and np.all(y <= self.data_settings.output_upp)
+        )
     
     def apply_bounds_x(self, x: np.ndarray) -> bool:
         '''
@@ -708,7 +716,7 @@ class Problem(object):
             x1 = self.scale_x(x1)
             x2 = self.scale_x(x2)
             
-        distance_matrix = cdist(x1, x2, metric=metric)
+        distance_matrix = cdist(x1, x2, metric=cast(Any, metric))
 
         return distance_matrix
     

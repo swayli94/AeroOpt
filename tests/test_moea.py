@@ -88,18 +88,26 @@ def test_rank_pareto_noop_on_empty_database(problem):
     assert db.size == 0
 
 
-def test_build_temporary_parent_database_requires_valid_flag(problem):
-    db = Database(problem, database_type="valid")
-    _append_valid(db, [_indi(problem, 0.2, 0.1, 1)])
+def test_build_temporary_parent_database_works_on_non_valid_flag_database(problem_biobj):
+    '''Total-style DB (is_valid_database=False) still builds a parent pool.'''
+    db = Database(problem_biobj, database_type="valid")
+    _append_valid(
+        db,
+        [
+            _indi(problem_biobj, 0.1, [0.5, 0.4], 1),
+            _indi(problem_biobj, 0.2, [0.4, 0.5], 2),
+        ],
+    )
     db._is_valid_database = False
-    with pytest.raises(ValueError, match="valid database"):
-        DominanceBasedAlgorithm.build_temporary_parent_database(db, population_size=4)
+    parent = DominanceBasedAlgorithm.build_temporary_parent_database(db, population_size=10)
+    assert parent is db
+    assert parent.size == 2
 
 
 def test_build_temporary_parent_database_empty_raises(problem):
     db = Database(problem, database_type="valid")
     db._is_valid_database = True
-    with pytest.raises(ValueError, match="empty valid"):
+    with pytest.raises(ValueError, match="empty database"):
         DominanceBasedAlgorithm.build_temporary_parent_database(db, population_size=4)
 
 

@@ -152,11 +152,11 @@ class SAO(OptBaseFramework):
             surrogate: SurrogateModel,
             opt_on_surrogate: OptBaseFramework,
             ratio_from_surrogate: float = 0.5,
-            user_func: Callable = None,
-            mp_evaluation: MultiProcessEvaluation = None,
-            pre_process: PreProcess = None,
-            post_process: PostProcessSAO = None,
-            rng: np.random.Generator = None):
+            user_func: Callable|None = None,
+            mp_evaluation: MultiProcessEvaluation|None = None,
+            pre_process: PreProcess|None = None,
+            post_process: PostProcessSAO|None = None,
+            rng: np.random.Generator|None = None):
         
         super().__init__(
             problem,
@@ -225,8 +225,13 @@ class SAO(OptBaseFramework):
         '''
         Generate candidate individuals using the evolutionary operators.
         '''
+        if self.db_valid.size <= 0:
+            _db = self.db_total
+        else:
+            _db = self.db_valid
+
         DiffEvolution.generate_candidate_individuals(
-            db_valid=self.db_valid,
+            db=_db,
             db_candidate=self.db_candidate,
             population_size=self.population_size,
             iteration=self.iteration,
@@ -254,8 +259,14 @@ class SAO(OptBaseFramework):
         
         # Optimization on the surrogate model
         self.opt_on_surrogate.main()
+        
+        if self.opt_on_surrogate.db_valid.size <= 0:
+            _db = self.opt_on_surrogate.db_total
+        else:
+            _db = self.opt_on_surrogate.db_valid
+        
         temp_parents = DominanceBasedAlgorithm.build_temporary_parent_database(
-            self.opt_on_surrogate.db_valid, n_candidates)
+            _db, n_candidates)
         n_pop = temp_parents.size
         
         # Get the candidate individuals from the surrogate model
@@ -278,7 +289,6 @@ class SAO(OptBaseFramework):
                 # Store the prediction of the surrogate model
                 y_predicted = np.zeros(self.problem.n_output)
                 y_predicted[self.index_outputs_for_surrogate] = temp_parents.individuals[i].y
-                indi._y_predicted = y_predicted
                 
                 # Keep the size of db_candidate equal to population_size
                 # By deleting the last candidate from original db_candidate

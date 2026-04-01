@@ -23,7 +23,7 @@ References:
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Callable
 
 import numpy as np
 
@@ -151,10 +151,10 @@ class RVEA(Algorithm):
     def environmental_selection_indices(
             db: Database,
             population_size: int,
-            state: RVEAApdState,
-            iteration: int,
-            max_iterations: int,
-            alpha: float = 2.0,
+            state: RVEAApdState|None = None,
+            iteration: int = 0,
+            max_iterations: int = 20,
+            alpha: float = 2.0
             ) -> List[int]:
         '''
         Select up to one survivor per reference direction via APD (pymoo APDSurvival).
@@ -197,6 +197,9 @@ class RVEA(Algorithm):
             return list(range(db.size))
 
         ys = db.get_unified_objectives(scale=True)
+        
+        if state is None:
+            raise ValueError("State is required for APD environmental selection.")
 
         state.ideal = np.minimum(ys.min(axis=0), state.ideal)
         F_shift = ys - state.ideal
@@ -266,22 +269,22 @@ class RVEA(Algorithm):
 
     @staticmethod
     def build_temporary_parent_database(
-            db_valid: Database,
+            db: Database,
             population_size: int,
-            state: RVEAApdState,
-            iteration: int,
-            max_iterations: int,
-            alpha: float,
+            state: RVEAApdState|None = None,
+            iteration: int = 0,
+            max_iterations: int = 20,
+            alpha: float = 2.0
             ) -> Database:
         '''
-        Temporary parent pool from the valid archive via RVEA APD truncation.
-        Reference directions are taken from ``state`` (set in ``OptRVEA`` init).
+        Temporary parent pool from the population database via RVEA APD truncation.
+        Reference directions are taken from `state` (set in `OptRVEA` init).
         '''
-        if db_valid.size <= 0:
-            raise ValueError("Cannot build parent database from an empty valid database.")
+        if db.size <= 0:
+            raise ValueError("Cannot build parent database from an empty database.")
 
-        db_work = db_valid.get_sub_database(
-            index_list=list(range(db_valid.size)), deepcopy=True)
+        db_work = db.get_sub_database(
+            index_list=list(range(db.size)), deepcopy=True)
         if db_work.size <= population_size:
             return db_work
 
@@ -292,23 +295,23 @@ class RVEA(Algorithm):
 
     @staticmethod
     def generate_candidate_individuals(
-            db_valid: Database,
+            db: Database,
             db_candidate: Database,
             population_size: int,
             iteration: int,
-            state: RVEAApdState,
-            max_iterations: int,
-            alpha: float,
+            state: RVEAApdState|None = None,
+            max_iterations: int = 20,
+            alpha: float = 2.0,
             cross_rate: float = 1.0,
             pow_sbx: float = 20.0,
             mut_rate: float = 1.0,
             pow_poly: float = 20.0,
             ) -> None:
-        if db_valid.size <= 0:
-            raise RuntimeError("No valid individuals available for RVEA evolution.")
+        if db.size <= 0:
+            raise RuntimeError("No individuals available for RVEA evolution.")
 
         temp_parents = RVEA.build_temporary_parent_database(
-            db_valid, population_size, state, iteration, max_iterations,
+            db, population_size, state, iteration, max_iterations,
             alpha)
         mating_population = binary_tournament_selection(
             pool=temp_parents, n_select=population_size)
@@ -351,9 +354,9 @@ class OptRVEA(OptBaseFramework):
             problem: Problem,
             optimization_settings: SettingsOptimization,
             algorithm_settings: SettingsRVEA,
-            user_func=None,
+            user_func: Callable|None = None,
             user_func_supports_parallel: bool = False,
-            mp_evaluation: MultiProcessEvaluation = None,
+            mp_evaluation: MultiProcessEvaluation|None = None,
             logging: bool = True,
             ):
 
@@ -389,8 +392,13 @@ class OptRVEA(OptBaseFramework):
             self.algorithm_settings.mut_rate
             / max(self.problem.n_input, 1))
 
+        if self.db_valid.size <= 0:
+            _db = self.db_total
+        else:
+            _db = self.db_valid
+
         RVEA.generate_candidate_individuals(
-            db_valid=self.db_valid,
+            db=_db,
             db_candidate=self.db_candidate,
             population_size=self.population_size,
             iteration=self.iteration,

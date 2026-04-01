@@ -39,15 +39,15 @@ class SettingsData(object):
         
         self.name = name
         
-        self.name_input: List[str] = []
-        self.input_low: np.ndarray = None
-        self.input_upp: np.ndarray = None
-        self.input_precision: np.ndarray = None
+        self.name_input: List[str] = ['Need to be set']
+        self.input_low: np.ndarray = np.array([])
+        self.input_upp: np.ndarray = np.array([])
+        self.input_precision: np.ndarray = np.array([])
         
-        self.name_output: List[str] = []
-        self.output_low: np.ndarray = None
-        self.output_upp: np.ndarray = None
-        self.output_precision: np.ndarray = None
+        self.name_output: List[str] = ['Need to be set']
+        self.output_low: np.ndarray = np.array([])
+        self.output_upp: np.ndarray = np.array([])
+        self.output_precision: np.ndarray = np.array([])
         
         self.critical_scaled_distance : float = 1.0e-6
 
@@ -228,10 +228,7 @@ class SettingsProblem(object):
     def __init__(self, name: str, 
             data_settings: SettingsData,
             fname_settings: str = 'settings.json',
-            constraint_functions: List[Callable[[np.ndarray, np.ndarray], float]] = None):
-        
-        if constraint_functions is None:
-            constraint_functions = []
+            constraint_functions: List[Callable[[np.ndarray, np.ndarray], float]] = []):
         
         self.name = name
         

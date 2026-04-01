@@ -27,22 +27,19 @@ class Algorithm(ABC):
     '''
     @staticmethod
     def build_temporary_parent_database(
-            db_valid: Database,
-            population_size: int,
-            **kwargs: Any,
+            db: Database,
+            population_size: int
             ) -> Database:
         '''
-        Optional hook for building a temporary parent pool from the valid database.
-        The `da_valid` is deep copied.
+        Optional hook for building a temporary parent pool from a population database.
+        The `db` is deep copied.
         
         Parameters:
         -----------
-        db_valid: Database
-            Valid database.
+        db: Database
+            Population database.
         population_size: int
             Size of the parent pool.
-        **kwargs: Any
-            Additional keyword arguments.
             
         Returns:
         --------
@@ -55,7 +52,6 @@ class Algorithm(ABC):
     def environmental_selection_indices(
             db: Database,
             population_size: int,
-            **kwargs: Any,
             ) -> List[int]:
         '''
         Optional hook for environmental selection on a merged pool.
@@ -67,8 +63,6 @@ class Algorithm(ABC):
             Database to select from.
         population_size: int
             Size of the parent pool.
-        **kwargs: Any
-            Additional keyword arguments.
             
         Returns:
         --------
@@ -80,25 +74,24 @@ class Algorithm(ABC):
     @staticmethod
     @abstractmethod
     def generate_candidate_individuals(
-            db_valid: Database,
+            db: Database,
             db_candidate: Database,
             population_size: int,
-            iteration: int,
-            **kwargs: Any,
+            iteration: int
             ) -> None:
         '''
         Generate candidate individuals during the optimization,
         which are stored in `db_candidate` database before evaluation.
-        The `db_candidate` database is generated from `db_valid` database:
+        The `db_candidate` database is generated from `db` database:
         
         - update `db_candidate` in place.
-        - create a temporary parent database by selection from `db_valid`
+        - create a temporary parent database by selection from `db`
         - evolution (crossover, mutation, etc.) of the parent database
         
         Parameters:
         -----------
-        db_valid: Database
-            Valid database.
+        db: Database
+            Population database (valid archive or total pool).
         db_candidate: Database
             Candidate database.
         population_size: int
@@ -337,20 +330,22 @@ class DominanceBasedAlgorithm(object):
         ]
 
     @staticmethod
-    def build_temporary_parent_database(db_valid: Database, population_size: int) -> Database:
+    def build_temporary_parent_database(db: Database, population_size: int) -> Database:
         '''
-        Build a temporary parent pool from the valid database:
+        Build a temporary parent pool from a population database.
         
-        - Non-dominated ranking
+        - Non-dominated ranking (scaled objectives if ``is_valid_database``; otherwise
+          constraint-aware ``Individual.check_dominance``, e.g. feasible vs infeasible)
         - Crowding distance assignment
         - Selection of parent pool
         
-        The db_valid is updated in-place.
+        The input database is updated in-place (Pareto rank, crowding distance, front indices).
         
         Parameters:
         -----------
-        db_valid: Database
-            Valid database.
+        db: Database
+            Population to select parents from (typically the valid archive; may be a total
+            database with `is_valid_database=False` when no feasible solutions exist yet).
         population_size: int
             Size of the parent pool.
             
@@ -359,24 +354,21 @@ class DominanceBasedAlgorithm(object):
         db_parent: Database
             Temporary parent pool.
         '''
-        if not db_valid.is_valid_database:
-            raise ValueError("Needs a valid database (db_valid.is_valid_database=True).")
-        
-        if db_valid.size <= 0:
-            raise ValueError("Cannot build parent database from an empty valid database.")
+        if db.size <= 0:
+            raise ValueError("Cannot build parent database from an empty database.")
 
-        if not db_valid.updated_pareto_rank:
-            DominanceBasedAlgorithm.non_dominated_ranking(db_valid)
+        if not db.updated_pareto_rank:
+            DominanceBasedAlgorithm.non_dominated_ranking(db)
         
-        DominanceBasedAlgorithm.assign_crowding_distance(db_valid)
+        DominanceBasedAlgorithm.assign_crowding_distance(db)
         
-        if db_valid.size <= population_size:
-            return db_valid
+        if db.size <= population_size:
+            return db
         
         index_list = DominanceBasedAlgorithm.select_parent_indices(
-            db_valid, population_size)
+            db, population_size)
         
-        db_parent = db_valid.get_sub_database(index_list=index_list, deepcopy=True)
+        db_parent = db.get_sub_database(index_list=index_list, deepcopy=True)
         
         return db_parent
     
