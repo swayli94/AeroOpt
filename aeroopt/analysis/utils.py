@@ -3,7 +3,7 @@ Utility functions for analysis.
 '''
 
 import numpy as np
-from typing import Tuple
+from typing import overload
 from sklearn.cluster import KMeans
 
 '''
@@ -12,7 +12,15 @@ Crowding metrics:
 - `potentials`: Potential of each point.
 '''
 
-def func_potential(r: np.ndarray|float, c: float) -> np.ndarray|float:
+@overload
+def func_potential(r: np.ndarray, c: float) -> np.ndarray:
+    ...
+
+@overload
+def func_potential(r: float, c: float) -> float:
+    ...
+
+def func_potential(r: np.ndarray | float, c: float) -> np.ndarray | float:
     '''
     Calculate the potential function of force `f=c*r*exp(-c*r)`.
     

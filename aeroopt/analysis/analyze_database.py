@@ -289,7 +289,7 @@ class AnalyzeDatabase(object):
         else:
             self._distance_matrix = cdist(
                 self._scaled_variables, self._scaled_variables,
-                metric=cast(Any, metric=self.metric))
+                metric=cast(Any, self.metric))
         
         return self._distance_matrix
 
@@ -370,8 +370,10 @@ class AnalyzeDatabase(object):
         
         self.calculate_typical_distance(update_attributes=update_attributes)
 
-        self._potentials = func_potential(
-            self._distance_matrix, self._coef_potential) # [nn, nn]
+        self._potentials = cast(
+            np.ndarray,
+            func_potential(self._distance_matrix, self._coef_potential),
+        )  # [nn, nn]
         
         self._potentials = np.sum(self._potentials, axis=1) - 1.0 # [nn]
         
@@ -408,7 +410,7 @@ class AnalyzeDatabase(object):
         
         _vs = np.atleast_2d(vs)
         
-        return cdist(_vs, self._scaled_variables, metric=cast(Any, metric=self.metric))
+        return cdist(_vs, self._scaled_variables, metric=cast(Any, self.metric))
 
     def calculate_potential_induced_by_database(self,
                 vs: np.ndarray,
@@ -441,7 +443,7 @@ class AnalyzeDatabase(object):
             
         # n = _vs.shape[0]
         distance_matrix = cdist(_vs, self._scaled_variables,
-                            metric=cast(Any, metric=self.metric)) # [n, nn]
+                            metric=cast(Any, self.metric)) # [n, nn]
         
         potentials = func_potential(
             distance_matrix, self._coef_potential) # [n, nn]
