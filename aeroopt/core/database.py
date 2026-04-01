@@ -853,6 +853,9 @@ class Database(object):
                 elif key == 'constraint_violations':
                     if value is not None:
                         value = np.array(value)
+                elif key == 'x':
+                    # `x` is already set in the Individual constructor.
+                    continue
                     
                 indi.__setattr__(key, value)
                 

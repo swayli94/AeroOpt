@@ -39,6 +39,7 @@ class SettingsOptimization(object):
         self.info_level_on_screen : int = 1
         self.critical_potential_x : float = 0.2
         self.seed : int|None = None
+        self.force_initial_population_size : int|None = None
         
         self.settings: Dict[str, Any] = {}
         self.read_settings(fname_settings)
@@ -76,6 +77,8 @@ class SettingsOptimization(object):
                 setattr(self, key, str(value))
             elif key == 'seed':
                 self.seed = int(value) if value is not None else None
+            elif key == 'force_initial_population_size':
+                self.force_initial_population_size = int(value) if value is not None else None
             else:
                 setattr(self, key, value)
 

@@ -286,10 +286,12 @@ class OptBaseFramework(ABC):
         
         self.generate_initial_individuals()
         
-        if self.pre_process is not None:
-            self.pre_process.apply()
+        if self.db_candidate.size > 0:
             
-        self.evaluate_db_candidate()
+            if self.pre_process is not None:
+                self.pre_process.apply()
+                
+            self.evaluate_db_candidate()
         
         self.update_total_and_valid_with_candidate()
         
@@ -310,7 +312,17 @@ class OptBaseFramework(ABC):
         # xs = np.random.rand(self.population_size, self.problem.n_input)
         # xs = self.problem.scale_x(xs, reverse=True)
         
-        xs = self.problem.latin_hypercube_sampling(self.population_size,
+        if self.optimization_settings.force_initial_population_size is not None:
+            population_size = self.optimization_settings.force_initial_population_size
+        else:
+            population_size = self.population_size
+        
+        if population_size <= 0:
+            self.db_candidate.empty_database()
+            self.log('Initial population size is set to 0.', level=1)
+            return
+        
+        xs = self.problem.latin_hypercube_sampling(population_size,
                                     scaled_values=False,
                                     sample_variables=None,
                                     seed=self.optimization_settings.seed)
