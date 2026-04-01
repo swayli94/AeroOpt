@@ -223,7 +223,7 @@ class SAO(OptBaseFramework):
         '''
         Generate candidate individuals using the evolutionary operators.
         '''
-        if self.db_valid.size <= 0:
+        if self.db_valid.size <= max(5, int(self.population_size * 0.5)):
             _db = self.db_total
         else:
             _db = self.db_valid
@@ -258,7 +258,7 @@ class SAO(OptBaseFramework):
         # Optimization on the surrogate model
         self.opt_on_surrogate.main()
         
-        if self.opt_on_surrogate.db_valid.size <= 0:
+        if self.opt_on_surrogate.db_valid.size <= max(5, int(self.population_size * 0.5)):
             _db = self.opt_on_surrogate.db_total
         else:
             _db = self.opt_on_surrogate.db_valid

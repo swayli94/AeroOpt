@@ -58,14 +58,28 @@ def test_sao_has_rng_and_de_offspring_generation(
     xv = np.array([0.2])
     n_out = problem.n_output
     for i in range(4):
+        y_i = np.full(n_out, 0.1 * (i + 1), dtype=float)
         indi = Individual(
             problem=problem,
             x=xv.copy(),
-            y=np.full(n_out, 0.1 * (i + 1), dtype=float),
+            y=y_i,
             ID=i + 1,
         )
         sao.db_valid.add_individual(
             indi,
+            check_duplication=False,
+            check_bounds=True,
+            deepcopy=False,
+            print_warning_info=False,
+        )
+        # SAO uses db_total for DE parents when db_valid is still small; mirror archive.
+        sao.db_total.add_individual(
+            Individual(
+                problem=problem,
+                x=xv.copy(),
+                y=y_i.copy(),
+                ID=i + 1,
+            ),
             check_duplication=False,
             check_bounds=True,
             deepcopy=False,

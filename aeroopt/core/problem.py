@@ -490,7 +490,8 @@ class Problem(object):
     
     def latin_hypercube_sampling(self, n: int,
                 scaled_values: bool = False,
-                sample_variables: List[str]|None = None) -> np.ndarray:
+                sample_variables: List[str]|None = None,
+                seed: int|None = None) -> np.ndarray:
         '''
         Latin Hypercube Sampling for the input/output vectors.
         
@@ -504,7 +505,10 @@ class Problem(object):
         sample_variables: List[str]
             list of variables (n_variables) to be sampled.
             If None, sample all the input variables.
-        
+        seed: int, or None
+            seed for the random number generator.
+            If None, use the default random number generator.
+            
         Returns
         -------------
         samples: ndarray [n, n_variables]
@@ -518,7 +522,7 @@ class Problem(object):
         else:
             raise ValueError('Invalid sample_variables.')
         
-        v_samples = pydoe.lhs(n_variables, samples=n, criterion='m')
+        v_samples = pydoe.lhs(n_variables, samples=n, criterion='m', seed=seed)
         
         if scaled_values:
             return v_samples

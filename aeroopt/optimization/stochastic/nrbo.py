@@ -302,7 +302,7 @@ class OptNRBO(OptBaseFramework):
         '''
         Generate NRBO candidates for the current iteration.
         '''
-        if self.db_valid.size <= 0:
+        if self.db_valid.size <= max(5, int(self.population_size * 0.5)):
             _db = self.db_total
         else:
             _db = self.db_valid

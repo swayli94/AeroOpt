@@ -312,7 +312,8 @@ class OptBaseFramework(ABC):
         
         xs = self.problem.latin_hypercube_sampling(self.population_size,
                                     scaled_values=False,
-                                    sample_variables=None)
+                                    sample_variables=None,
+                                    seed=self.optimization_settings.seed)
         
         self.db_candidate.empty_database()
         for x in xs:

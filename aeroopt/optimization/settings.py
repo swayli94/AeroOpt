@@ -38,6 +38,7 @@ class SettingsOptimization(object):
         self.working_directory : str = './'
         self.info_level_on_screen : int = 1
         self.critical_potential_x : float = 0.2
+        self.seed : int|None = None
         
         self.settings: Dict[str, Any] = {}
         self.read_settings(fname_settings)
@@ -73,6 +74,8 @@ class SettingsOptimization(object):
                 self.critical_potential_x = float(value)
             elif key.startswith('fname_') or key in ('working_directory', 'fname_log'):
                 setattr(self, key, str(value))
+            elif key == 'seed':
+                self.seed = int(value) if value is not None else None
             else:
                 setattr(self, key, value)
 

@@ -32,7 +32,8 @@
         "fname_log": "optimization.log",
         "working_directory": "./",
         "info_level_on_screen": 1,
-        "critical_potential_x": 0.2
+        "critical_potential_x": 0.2,
+        "seed": null
     },
     "example_SettingsNSGAII": {
         "type": "SettingsNSGAII",
