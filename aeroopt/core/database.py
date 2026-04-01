@@ -252,7 +252,7 @@ class Database(object):
         '''
         if self.size <= 0:
             return 0
-        return np.max(self._id_list)
+        return int(np.max(self._id_list))
     
     def get_xs(self, scale: bool = False,
                 ID_list: List[int]|None = None, 
@@ -517,7 +517,7 @@ class Database(object):
         # Assign ID
         original_ID = indi.ID
         if isinstance(original_ID, int):
-            if indi.ID in self._id_list or original_ID == ID_UNASSIGNED:
+            if original_ID in self._id_list or original_ID == ID_UNASSIGNED:
                 indi.ID = self.get_largest_ID() + 1
         else:
             indi.ID = self.get_largest_ID() + 1
