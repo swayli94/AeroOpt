@@ -274,6 +274,7 @@ def run_one_benchmark(
         user_func_supports_parallel=True,
         mp_evaluation=None,
         rng=np.random.default_rng(int(sbo_inner_de_rng_seed(bench_index))),
+        save_result_files=False,
         logging=False,
     )
 

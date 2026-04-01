@@ -2,6 +2,7 @@ import os
 
 import numpy as np
 import pytest
+from types import SimpleNamespace
 
 from aeroopt.core.problem import Problem
 from aeroopt.core.settings import SettingsData, SettingsProblem
@@ -187,3 +188,49 @@ def test_kriging_train_on_unscaled_data_predict(kriging_problem):
     k.train(xs, ys)
     yhat = k.predict(xs)
     np.testing.assert_allclose(yhat, ys, rtol=0.15, atol=0.15)
+
+
+def test_kriging_scale_y_forward_with_selected_outputs_only():
+    lows = np.array([-2.0, 10.0, 100.0], dtype=float)
+    upps = np.array([2.0, 30.0, 200.0], dtype=float)
+    captured = {}
+
+    def _fake_scale_y(ys_full, reverse=False):
+        captured["ys_full"] = ys_full.copy()
+        span = upps - lows
+        if reverse:
+            return ys_full * span[None, :] + lows[None, :]
+        return (ys_full - lows[None, :]) / span[None, :]
+
+    k = Kriging.__new__(Kriging)
+    k.problem = SimpleNamespace(n_output=3, scale_y=_fake_scale_y)
+    k._index_outputs = np.array([0, 2], dtype=int)
+
+    ys = np.array([[-1.0, 120.0], [1.0, 180.0]], dtype=float)
+    got = k._scale_y(ys, reverse=False)
+
+    expected = np.array([[0.25, 0.20], [0.75, 0.80]], dtype=float)
+    np.testing.assert_allclose(got, expected)
+    np.testing.assert_allclose(captured["ys_full"][:, 1], 0.0)
+    np.testing.assert_allclose(captured["ys_full"][:, [0, 2]], ys)
+
+
+def test_kriging_scale_y_reverse_recovers_original_selected_outputs():
+    lows = np.array([-2.0, 10.0, 100.0], dtype=float)
+    upps = np.array([2.0, 30.0, 200.0], dtype=float)
+
+    def _fake_scale_y(ys_full, reverse=False):
+        span = upps - lows
+        if reverse:
+            return ys_full * span[None, :] + lows[None, :]
+        return (ys_full - lows[None, :]) / span[None, :]
+
+    k = Kriging.__new__(Kriging)
+    k.problem = SimpleNamespace(n_output=3, scale_y=_fake_scale_y)
+    k._index_outputs = np.array([0, 2], dtype=int)
+
+    ys_scaled = np.array([[0.25, 0.20], [0.75, 0.80]], dtype=float)
+    got = k._scale_y(ys_scaled, reverse=True)
+
+    expected = np.array([[-1.0, 120.0], [1.0, 180.0]], dtype=float)
+    np.testing.assert_allclose(got, expected)

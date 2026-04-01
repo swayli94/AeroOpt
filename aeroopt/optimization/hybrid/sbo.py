@@ -208,11 +208,7 @@ class SBO(OptBaseFramework):
                 print_warning_info=False,
             )
             
-            if added:
-                # Store the prediction of the surrogate model
-                y_predicted = np.zeros(self.problem.n_output)
-                y_predicted[self.index_outputs_for_surrogate] = temp_parents.individuals[i].y
-            else:
+            if not added:
                 self.log(warning_text, level=2, prefix='  > ')
 
     def select_elite_from_valid(self) -> None:

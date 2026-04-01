@@ -12,7 +12,7 @@ Classic surrogate model packages:
 
 import numpy as np
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from aeroopt.core.problem import Problem
 
@@ -196,39 +196,66 @@ class Kriging(SurrogateModel):
     model_name: str
         Name of the surrogate model.
     train_on_scaled_data: bool
-        If True, train the surrogate model on the scaled input/output data.
+        If True, train the surrogate model on the scaled input/output data.\
+    index_outputs_for_surrogate: List[int]|None
+        Index of the output variables for the surrogate model.
+        If None, use all output variables.
     **kwargs
         Forwarded to `smt.surrogate_models.KPLS`. By default `print_global`
         is False so SMT does not print training/prediction banners to stdout.
     '''
     def __init__(self, problem: Problem, model_name: str = 'Kriging',
-                train_on_scaled_data: bool = True, **kwargs):
+                train_on_scaled_data: bool = True,
+                index_outputs_for_surrogate: List[int]|np.ndarray|None = None,
+                **kwargs):
         
         from smt.surrogate_models import KPLS
         
         self.problem = problem
         self.model_name = model_name
         self.train_on_scaled_data = train_on_scaled_data
-
+        
+        if index_outputs_for_surrogate is None:
+            self._n_output = problem.n_output
+            self._index_outputs = np.arange(problem.n_output, dtype=int)
+        else:
+            self._n_output = len(index_outputs_for_surrogate)
+            self._index_outputs = np.array(index_outputs_for_surrogate, dtype=int)
+        
         kpls_kwargs = {'print_global': False}
         kpls_kwargs.update(kwargs)
-        self._model = [KPLS(**kpls_kwargs) for _ in range(problem.n_output)]
+        self._model = [KPLS(**kpls_kwargs) for _ in range(self.n_output)]
         self._size : int = 0
-                
+    
+    @property
+    def n_output(self) -> int:
+        '''
+        Number of output variables for the surrogate model.
+        '''
+        return self._n_output
+    
+    @property
+    def index_outputs_for_surrogate(self) -> np.ndarray:
+        '''
+        Index of the output variables for the surrogate model.
+        '''
+        return self._index_outputs
+    
     @property
     def output_span(self) -> np.ndarray:
         '''
         Span of the output variables, used for scaling the epistemic standard deviation.
         '''
         span = self.problem.data_settings.output_upp - self.problem.data_settings.output_low
-        return span
+        return span[self._index_outputs]
     
     @property
     def output_type(self) -> list[int]:
         '''
         Type of the output variables.
         '''
-        return self.problem.problem_settings.output_type
+        output_type = np.array(self.problem.problem_settings.output_type, dtype=int)
+        return output_type[self._index_outputs].tolist()
     
     def _get_sampling_criteria(self, ys: np.ndarray, epistemic_std: np.ndarray) -> np.ndarray:
         '''
@@ -266,13 +293,22 @@ class Kriging(SurrogateModel):
         
         return criteria
     
+    def _scale_y(self, ys: np.ndarray, reverse: bool = False) -> np.ndarray:
+        '''
+        Scale the output vector to [0, 1] or from [0, 1] to the original range.
+        '''
+        ys_full = np.zeros((ys.shape[0], self.problem.n_output))
+        ys_full[:, self._index_outputs] = ys
+        ys_scaled = self.problem.scale_y(ys_full, reverse=reverse)
+        return ys_scaled[:, self._index_outputs]
+    
     def train(self, xs: np.ndarray, ys: np.ndarray) -> None:
         '''
         Train the surrogate model using the input/output data.
         '''
         if self.train_on_scaled_data:
             xt = self.problem.scale_x(xs)
-            yt = self.problem.scale_y(ys)
+            yt = self._scale_y(ys)
         else:
             xt = xs
             yt = ys
@@ -294,7 +330,7 @@ class Kriging(SurrogateModel):
             for i in range(self.n_output):
                 pred = np.asarray(self._model[i].predict_values(xt), dtype=float)
                 ys[:, i] = pred.reshape(-1)
-            ys = self.problem.scale_y(ys, reverse=True)
+            ys = self._scale_y(ys, reverse=True)
             
         else:
             
@@ -321,7 +357,7 @@ class Kriging(SurrogateModel):
                 ys[:, i] = pred.reshape(-1)
                 epistemic_variance[:, i] = var.reshape(-1)
             
-            ys = self.problem.scale_y(ys, reverse=True)
+            ys = self._scale_y(ys, reverse=True)
             output_span = self.output_span
             epistemic_variance = epistemic_variance * output_span[None, :] ** 2
             
@@ -344,7 +380,7 @@ class Kriging(SurrogateModel):
         '''
         if self.train_on_scaled_data:
             xs = self.problem.scale_x(xs)
-            ys_actual = self.problem.scale_y(ys_actual)
+            ys_actual = self._scale_y(ys_actual)
 
         ys_pred = np.zeros((xs.shape[0], self.n_output))
         for i in range(self.n_output):
