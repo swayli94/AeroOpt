@@ -62,6 +62,9 @@ class PostProcessSAO(PostProcess):
             return None
 
         self.opt.log(f'Evaluating the performance and contribution of the surrogate model.', level=1)
+        
+        if not isinstance(self.opt, SAO):
+            raise ValueError('PostProcessSAO can only be used with SAO.')
 
         xs = self.opt.db_candidate.get_xs(scale=False)
         ys_actual = self.opt.db_candidate.get_ys(scale=False)

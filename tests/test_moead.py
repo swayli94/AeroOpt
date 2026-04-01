@@ -132,6 +132,7 @@ def test_generate_candidate_individuals_requires_valid_population(problem_biobj)
         MOEAD.generate_candidate_individuals(
             db_valid,
             db_candidate,
+            population_size=ref.shape[0],
             ref_dirs=ref,
             neighbors=neighbors,
             slot_ids=slot_ids,
@@ -174,6 +175,7 @@ def test_generate_candidate_individuals_builds_offspring(problem_biobj):
     MOEAD.generate_candidate_individuals(
         db_valid,
         db_candidate,
+        population_size=ref.shape[0],
         ref_dirs=ref,
         neighbors=neighbors,
         slot_ids=slot_ids,

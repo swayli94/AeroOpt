@@ -12,7 +12,7 @@ Crowding metrics:
 - `potentials`: Potential of each point.
 '''
 
-def func_potential(r: np.ndarray, c: float) -> np.ndarray:
+def func_potential(r: np.ndarray|float, c: float) -> np.ndarray|float:
     '''
     Calculate the potential function of force `f=c*r*exp(-c*r)`.
     
@@ -22,7 +22,7 @@ def func_potential(r: np.ndarray, c: float) -> np.ndarray:
     
     Parameters:
     -----------
-    r: np.ndarray
+    r: np.ndarray|float
         distance
     c: float
         coefficient to scale the distance `r`.
@@ -121,4 +121,4 @@ def clustering_kmeans(vs: np.ndarray, n_clusters: int) -> np.ndarray:
     
     kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(vs_std)
     
-    return kmeans.labels_
+    return np.array(kmeans.labels_)

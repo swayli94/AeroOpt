@@ -46,5 +46,6 @@ class TestMultiProcessEvaluationInit:
         # __init__ 允许 func=None；无 func 时 evaluate 必须提供 list_name 与 prob
         mp = MultiProcessEvaluation(1, 1, func=None)
         xs = np.array([[1.0]])
-        with pytest.raises(Exception, match="list of working folder"):
+        # New validation order checks `prob` first, so message differs from older list_name-first behavior.
+        with pytest.raises(Exception, match="Problem object `prob`"):
             mp.evaluate(xs)

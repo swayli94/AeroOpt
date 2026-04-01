@@ -3,7 +3,7 @@ Analyze and manipulate the database.
 '''
 
 import numpy as np
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Any, cast
 from scipy.spatial.distance import cdist
 from sklearn.cluster import KMeans
 
@@ -26,7 +26,7 @@ class AnalyzeDatabase(object):
     database: Database
         The database is not copied, so it can be modified in place.
         It can also be automatically updated when the database is modified outside.
-    variables_for_calculating_potential: List[str]
+    variables_for_calculating_potential: List[str]|None
         Variables to be used for calculating the potential.
         If None, all `x` variables will be used.
     critical_potential: float
@@ -47,29 +47,29 @@ class AnalyzeDatabase(object):
         Statistics of all individuals.
     '''
     def __init__(self, database: Database,
-                variables_for_calculating_potential: List[str] = None,
+                variables_for_calculating_potential: List[str]|None = None,
                 critical_potential: float = 0.2):
         
         self.database = database
         self.critical_potential = critical_potential
         self.variables_for_calculating_potential = variables_for_calculating_potential
         
-        self.statistics : Dict[str, np.ndarray] = None
-        self._xs : np.ndarray = None
-        self._ys : np.ndarray = None
-        self._scaled_xs : np.ndarray = None
-        self._scaled_ys : np.ndarray = None
+        self.statistics : Dict[str, np.ndarray] = {}
+        self._xs : np.ndarray = np.array([])
+        self._ys : np.ndarray = np.array([])
+        self._scaled_xs : np.ndarray = np.array([])
+        self._scaled_ys : np.ndarray = np.array([])
         
         # Scaled variables for calculating the potential.
-        self._scaled_variables : np.ndarray = None
-        self._distance_matrix : np.ndarray = None
-        self._coef_potential : float = None
-        self._potentials : np.ndarray = None
-        self._d_typical : float = None
+        self._scaled_variables : np.ndarray = np.array([])
+        self._distance_matrix : np.ndarray = np.array([])
+        self._coef_potential : float = 0.0
+        self._potentials : np.ndarray = np.array([])
+        self._d_typical : float = 0.0
         
         # Grouping by variables
-        self._group_mean : np.ndarray = None # [n_group, n_variable]
-        self._group_std : np.ndarray = None # [n_group, n_variable]
+        self._group_mean : np.ndarray = np.array([]) # [n_group, n_variable]
+        self._group_std : np.ndarray = np.array([]) # [n_group, n_variable]
         self._ID_in_group : List[List[int]] = [] # [n_group][n_indi_in_group]
 
         # Settings
@@ -144,7 +144,7 @@ class AnalyzeDatabase(object):
         '''
         The average potential of all points in the database.
         '''
-        return np.mean(self._potentials)
+        return float(np.mean(self._potentials))
     
     @property
     def ID_in_group(self) -> List[List[int]]:
@@ -250,7 +250,7 @@ class AnalyzeDatabase(object):
         average, standard deviation, minimum, maximum of (scaled) `x`,  `y` and `v`.
         '''
         if self.size <= 0:
-            self.statistics = None
+            self.statistics = {}
             return self.statistics
 
         self.statistics = {
@@ -285,10 +285,11 @@ class AnalyzeDatabase(object):
         Update the distance matrix of the database.
         '''
         if self.size <= 0:
-            self._distance_matrix = None
+            self._distance_matrix = np.array([])
         else:
             self._distance_matrix = cdist(
-                self._scaled_variables, self._scaled_variables, metric=self.metric)
+                self._scaled_variables, self._scaled_variables,
+                metric=cast(Any, metric=self.metric))
         
         return self._distance_matrix
 
@@ -407,7 +408,7 @@ class AnalyzeDatabase(object):
         
         _vs = np.atleast_2d(vs)
         
-        return cdist(_vs, self._scaled_variables, metric=self.metric)
+        return cdist(_vs, self._scaled_variables, metric=cast(Any, metric=self.metric))
 
     def calculate_potential_induced_by_database(self,
                 vs: np.ndarray,
@@ -439,7 +440,8 @@ class AnalyzeDatabase(object):
         _vs = np.atleast_2d(vs)
             
         # n = _vs.shape[0]
-        distance_matrix = cdist(_vs, self._scaled_variables, metric=self.metric) # [n, nn]
+        distance_matrix = cdist(_vs, self._scaled_variables,
+                            metric=cast(Any, metric=self.metric)) # [n, nn]
         
         potentials = func_potential(
             distance_matrix, self._coef_potential) # [n, nn]
@@ -455,8 +457,8 @@ class AnalyzeDatabase(object):
     def eliminate_crowding_individuals(self,
                 threshold_distance: float = 0.01,
                 threshold_potential: float = 0.8,
-                n_min_left: int = None,
-                n_max_delete: int = None,
+                n_min_left: int|None = None,
+                n_max_delete: int|None = None,
                 ) -> List[int]:
         '''
         Eliminate individuals with low crowding distance or high crowding potential.
@@ -474,10 +476,10 @@ class AnalyzeDatabase(object):
             Threshold potential to determine the individuals to be eliminated.
             Individuals with `crowding_potential > threshold_potential` will be eliminated.
             `crowding_potential` is the potential induced by all other points.
-        n_min_left: int
+        n_min_left: int|None
             Minimum number of individuals left in the database.
             If None, no limit is applied.
-        n_max_delete: int
+        n_max_delete: int|None
             Maximum number of individuals to be deleted.
             If None, no limit is applied.
             
@@ -574,7 +576,7 @@ class AnalyzeDatabase(object):
         self._ID_in_group = [[] for _ in range(n_groups)]
         
         # Assign group to each individual
-        cluster_labels : np.ndarray = kmeans.labels_ # [n]
+        cluster_labels : np.ndarray = np.array(kmeans.labels_) # [n]
         for i, indi in enumerate(self.database.individuals):
             j = int(cluster_labels[i])
             indi.group = j
@@ -588,7 +590,7 @@ class AnalyzeDatabase(object):
             self._group_std[i,:] = np.std(self._scaled_variables[cluster_labels == i], axis=0)
     
     def calculate_statistics_of_groups(self,
-                name_variables: List[str] = None,
+                name_variables: List[str]|None = None,
                 ) -> Dict[str, np.ndarray]:
         '''
         Calculate the statistics of scaled variables in each group.

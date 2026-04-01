@@ -91,20 +91,21 @@ class MOEAD(Algorithm):
     def generate_candidate_individuals(
             db: Database,
             db_candidate: Database,
-            ref_dirs: np.ndarray,
-            neighbors: np.ndarray,
-            slot_ids: np.ndarray,
-            prob_neighbor: float,
-            decomposition_method: str,
-            pbi_theta: float,
-            ideal: np.ndarray,
+            population_size: int,
             iteration: int,
-            cross_rate: float,
-            pow_sbx: float,
-            mut_rate: float,
-            pow_poly: float,
-            rng: np.random.Generator,
-            pending_list: List[Tuple[int, int]],
+            ref_dirs: np.ndarray = np.array([]),
+            neighbors: np.ndarray = np.array([]),
+            slot_ids: np.ndarray = np.array([]),
+            prob_neighbor: float = 0.0,
+            decomposition_method: str = 'auto',
+            pbi_theta: float = 5.0,
+            ideal: np.ndarray = np.array([]),
+            cross_rate: float = 0.8,
+            pow_sbx: float = 20.0,
+            mut_rate: float = 1.0,
+            pow_poly: float = 20.0,
+            rng: np.random.Generator = np.random.default_rng(),
+            pending_list: List[Tuple[int, int]] = [],
             ) -> None:
         '''
         Generate one offspring per subproblem in random order (MOEA/D parallel
@@ -120,6 +121,10 @@ class MOEAD(Algorithm):
             Population database.
         db_candidate: Database
             Candidate database.
+        population_size: int
+            Size of the parent pool (not used in MOEA/D).
+        iteration: int
+            Current iteration.
         ref_dirs: np.ndarray
             Reference directions.
         neighbors: np.ndarray
@@ -134,8 +139,6 @@ class MOEAD(Algorithm):
             PBI theta parameter.
         ideal: np.ndarray
             Ideal point.
-        iteration: int
-            Current iteration.
         cross_rate: float
             Crossover rate.
         pow_sbx: float
@@ -345,7 +348,7 @@ class OptMOEAD(OptBaseFramework):
             dtype=np.int64,
         )
         self._ideal = self.db_valid.get_unified_objectives(
-            scale=True, ID_list=self._slot_ids).min(axis=0).astype(float)
+            scale=True, ID_list=self._slot_ids.tolist()).min(axis=0).astype(float)
 
     def _replace_subproblem(self, k: int, offspring_id: int) -> None:
         '''
@@ -367,9 +370,14 @@ class OptMOEAD(OptBaseFramework):
         off = self.db_valid.individuals[oidx]
         if not off.valid_evaluation:
             return
+        
+        if self._slot_ids is None:
+            raise ValueError("Subproblem slots are not initialized.")
+        if self._ideal is None:
+            raise ValueError("Ideal point is not initialized.")
 
         Nloc = self._neighbors[k, :]
-        ids = self._slot_ids[Nloc]
+        ids = self._slot_ids[Nloc].tolist()
         F_nei = self.db_valid.get_unified_objectives(scale=True, ID_list=ids)
         F_off = self.db_valid.get_unified_objectives(scale=True, index_list=[oidx])
         w_nei = self._ref_dirs[Nloc, :]
@@ -392,6 +400,9 @@ class OptMOEAD(OptBaseFramework):
         replacement for subproblem `k`. Skip entries whose ID is missing from
         `db` or lacks a valid evaluation (e.g. infeasible offspring).
         '''
+        if self._ideal is None:
+            raise ValueError("Ideal point is not initialized.")
+        
         for k, oid in self._pending:
             oid_i = int(oid)
             try:
@@ -432,6 +443,8 @@ class OptMOEAD(OptBaseFramework):
         MOEAD.generate_candidate_individuals(
             db=_db,
             db_candidate=self.db_candidate,
+            population_size=self.population_size,
+            iteration=self.iteration,
             ref_dirs=self._ref_dirs,
             neighbors=self._neighbors,
             slot_ids=self._slot_ids,
@@ -439,7 +452,6 @@ class OptMOEAD(OptBaseFramework):
             decomposition_method=self._decomposition,
             pbi_theta=self.algorithm_settings.pbi_theta,
             ideal=self._ideal,
-            iteration=self.iteration,
             cross_rate=self.algorithm_settings.cross_rate,
             pow_sbx=self.algorithm_settings.pow_sbx,
             mut_rate=mute_rate,

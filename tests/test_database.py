@@ -2,11 +2,10 @@ import os
 
 import numpy as np
 import pytest
-from openpyxl import load_workbook
 
 from aeroopt.core.settings import SettingsData, SettingsProblem
 from aeroopt.core.problem import Problem
-from aeroopt.core.individual import Individual
+from aeroopt.core.individual import Individual, ID_UNASSIGNED
 from aeroopt.core.database import Database, _json_dump_numpy_safe
 
 
@@ -28,7 +27,7 @@ def database(problem):
     return Database(problem, database_type="population")
 
 
-def _indi(problem, x, y=None, ID=None):
+def _indi(problem, x, y=None, ID: int = ID_UNASSIGNED):
     return Individual(problem, x=np.array([x]), y=None if y is None else np.array([y]), ID=ID)
 
 
@@ -63,6 +62,23 @@ class TestDatabaseBasics:
         assert database.size == 1
         database.delete_individual(index=0)
         assert database.size == 0
+
+    def test_add_individual_assigns_reliable_ids_for_unassigned_default(self, database, problem):
+        # Seed one explicit ID so default-ID assignment must continue from current max ID.
+        assert database.add_individual(
+            _indi(problem, 0.15, 0.15, ID=7), check_duplication=False
+        )[0] is True
+
+        assert database.add_individual(
+            _indi(problem, 0.35, 0.35), check_duplication=False
+        )[0] is True
+        assert database.add_individual(
+            _indi(problem, 0.55, 0.55), check_duplication=False
+        )[0] is True
+
+        assigned_ids = [indi.ID for indi in database.individuals]
+        assert assigned_ids == [7, 8, 9]
+        assert ID_UNASSIGNED not in assigned_ids
 
 
 class TestDatabaseDuplication:
@@ -132,7 +148,7 @@ class TestDatabaseJsonIO:
         db = Database(problem, database_type="total")
         indi = _indi(problem, 0.12, 0.34, ID=3)
         indi.sum_violation = np.float64(0.0)
-        indi.group = np.int32(7)
+        indi.group = int(7)
         _append_direct(db, indi)
         f = tmp_path / "db_numpy.json"
 
@@ -229,11 +245,11 @@ class TestDatabaseEvaluateIndividuals:
         assert db.individuals[0].valid_evaluation is True
         np.testing.assert_allclose(db.individuals[0].y, [0.6])
 
-    def test_evaluate_individuals_raises_when_id_is_none(self, problem):
+    def test_evaluate_individuals_raises_when_id_is_negative(self, problem):
         db = Database(problem, database_type="total")
-        indi = Individual(problem, x=np.array([0.1]), ID=None)
+        indi = Individual(problem, x=np.array([0.1]), ID=ID_UNASSIGNED)
         _append_direct(db, indi)
-        with pytest.raises(ValueError, match="ID is None"):
+        with pytest.raises(ValueError, match=f"Individual ID is negative: {ID_UNASSIGNED}"):
             db.evaluate_individuals(mp_evaluation=None, user_func=lambda x: (True, np.array([0.0])))
 
     def test_evaluate_individuals_parallel_user_func_matrix(self, problem):
@@ -289,4 +305,6 @@ class TestDatabaseEvaluateIndividuals:
         assert db.individuals[0].valid_evaluation is True
         np.testing.assert_allclose(db.individuals[0].y, [1.0])
         assert db.individuals[1].valid_evaluation is False
-        assert db.individuals[1].y is None
+        # New behavior: failed batched evaluation keeps y as empty ndarray (not None).
+        assert isinstance(db.individuals[1].y, np.ndarray)
+        assert db.individuals[1].y.size == 0

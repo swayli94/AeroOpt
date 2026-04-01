@@ -216,24 +216,31 @@ class MultiProcessEvaluation():
         ys = np.zeros([n, self.dim_output])
         list_succeed = [False for _ in range(n)]
 
-        if self.func is None and not isinstance(list_name, list):
-            raise Exception('Must provide a list of working folder names')
-
         n_show = 100
         if 'n_show' in kwargs.keys():
             n_show : int = kwargs['n_show']
 
         if 'prob' in kwargs.keys():
-            prob : Problem = kwargs['prob']
+            prob = kwargs['prob']
         elif self.func is None:
             raise Exception('Must provide Problem object `prob` for external running')
+        else:
+            prob = None
 
         #* Serial calculation
         if self.n_process==None:
 
             if self.func is None:
+                
+                if list_name is None:
+                    raise Exception('Must provide a list of working folder names')
+                
+                if not isinstance(prob, Problem):
+                    raise Exception('Must provide Problem object `prob` for external running')
+                
                 for i in range(n):
-                    list_succeed[i], ys[i,:] = self.external_run(list_name[i], xs[i,:], prob)
+                    list_succeed[i], ys[i,:] = self.external_run(
+                        list_name[i], xs[i,:], prob)
             
             else:
                 for i in range(n):
@@ -249,6 +256,10 @@ class MultiProcessEvaluation():
                 for i in range(n):
 
                     if self.func is None:
+                        
+                        if list_name is None:
+                            raise Exception('Must provide a list of working folder names')
+                        
                         futures.append(executor.submit(self.func_mp, xs[i,:], i, name=list_name[i], **kwargs))
                         
                     else:

@@ -9,6 +9,9 @@ from aeroopt.core.settings import SettingsData
 from aeroopt.core.utils import compare_ndarray
 
 
+ID_UNASSIGNED = -999
+
+
 class Individual(object):
     '''
     Individual of a problem.
@@ -20,12 +23,13 @@ class Individual(object):
     x: np.ndarray
         Input variables of the individual.
     ID: int
-        ID of the individual.
+        ID of the individual (non-negative integer).
+        The default value is -999, which means the ID is not assigned.
     y: np.ndarray
         Output variables of the individual.
     '''
     def __init__(self, problem: Problem, x: np.ndarray,
-                    ID: int | None = None,
+                    ID: int = ID_UNASSIGNED,
                     y: np.ndarray | None = None):
         
         self.problem = problem
@@ -33,7 +37,7 @@ class Individual(object):
         
         self.x : np.ndarray = x
         self.y : np.ndarray = np.array([]) if y is None else y
-        self.ID : int | None = ID
+        self.ID : int = ID
 
         self.valid_evaluation : bool = True
         self.source : str = 'default'

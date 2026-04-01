@@ -129,12 +129,18 @@ def test_post_process_sbo_calls_evaluate_performance_with_sliced_outputs(
         print_warning_info=False,
     )
 
-    opt = SimpleNamespace(
-        db_candidate=db_c,
-        index_outputs_for_surrogate=np.array([0], dtype=int),
-        log=lambda *a, **k: None,
+    sbo = SBO(
+        problem,
+        optimization_settings,
+        surrogate,
+        _InnerOptShell(problem),
+        user_func=None,
+        mp_evaluation=None,
     )
-    pp = PostProcessSBO(opt, surrogate)
+    sbo.db_candidate = db_c
+    sbo._index_outputs_for_surrogate = np.array([0], dtype=int)
+
+    pp = PostProcessSBO(sbo, surrogate)
     pp.apply()
 
     assert surrogate._last_perf_args is not None

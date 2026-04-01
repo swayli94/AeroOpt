@@ -12,7 +12,7 @@ from aeroopt.core import Database, Individual, Problem
 def sbx_crossover(
         x1: np.ndarray, x2: np.ndarray, problem: Problem,
         cross_rate: float = 1.0, pow_sbx: float = 20.0,
-        rng: np.random.Generator = None,
+        rng: np.random.Generator|None = None,
         ) -> Tuple[np.ndarray, np.ndarray]:
     '''
     Simulated Binary Crossover (SBX) operator.
@@ -105,7 +105,7 @@ def binomial_crossover(x_target: np.ndarray, x_mutant: np.ndarray,
 def polynomial_mutation(
         x: np.ndarray, problem: Problem,
         mut_rate: float = 1.0, pow_poly: float = 20.0,
-        rng: np.random.Generator = None,
+        rng: np.random.Generator|None = None,
         ) -> np.ndarray:
     '''
     Polynomial mutation.
@@ -148,7 +148,7 @@ def polynomial_mutation(
 
 def binary_tournament_selection(
         pool: Database, n_select: int,
-        rng: np.random.Generator = None) -> List[Individual]:
+        rng: np.random.Generator|None = None) -> List[Individual]:
     '''
     Binary tournament selection from a sorted population.
 

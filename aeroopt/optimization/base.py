@@ -42,9 +42,9 @@ class OptBaseFramework(ABC):
     -----------
     iteration: int
         The current iteration number.
-    pre_process: PreProcess
+    pre_process: PreProcess|None
         Pre-processing of the `db_candidate` database to be evaluated.
-    post_process: PostProcess
+    post_process: PostProcess|None
         Post-processing of the `db_candidate` database after evaluation.
     db_total: Database
         Total database, containing all individuals.
@@ -85,8 +85,8 @@ class OptBaseFramework(ABC):
         self.logging : bool = logging
         
         # Processing objects manually defined in the main program.
-        self.pre_process : 'PreProcess' = None
-        self.post_process : 'PostProcess' = None
+        self.pre_process : 'PreProcess|None' = None
+        self.post_process : 'PostProcess|None' = None
         
         # Database
         self.db_total = Database(self.problem, database_type='total')

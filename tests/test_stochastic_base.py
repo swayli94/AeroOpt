@@ -50,7 +50,8 @@ def test_dominance_check_pareto_dominance():
 def test_get_unified_objectives_empty(problem):
     db = Database(problem, database_type="valid")
     ys = db.get_unified_objectives(scale=False)
-    assert ys.shape == (0, 0)
+    # New behavior returns a 1D empty array for no objectives, instead of (0, 0).
+    assert ys.shape == (0,)
 
 
 def test_get_unified_objectives_minimize(problem):

@@ -53,6 +53,9 @@ class PostProcessSBO(PostProcess):
             return None
 
         self.opt.log(f'Evaluating the performance of the surrogate model.', level=1)
+        
+        if not isinstance(self.opt, SBO):
+            raise ValueError('PostProcessSBO can only be used with SBO.')
 
         xs = self.opt.db_candidate.get_xs(scale=False)
         ys_actual = self.opt.db_candidate.get_ys(scale=False)
@@ -101,12 +104,19 @@ class SBO(OptBaseFramework):
             optimization_settings: SettingsOptimization,
             surrogate: SurrogateModel,
             opt_on_surrogate: OptBaseFramework,
-            user_func: Callable = None,
-            mp_evaluation: MultiProcessEvaluation = None,
-            pre_process: PreProcess = None,
-            post_process: PostProcessSBO = None):
+            user_func: Callable|None = None,
+            user_func_supports_parallel: bool = True,
+            mp_evaluation: MultiProcessEvaluation|None = None,
+            pre_process: PreProcess|None = None,
+            post_process: PostProcessSBO|None = None,
+            logging: bool = True):
         
-        super().__init__(problem, optimization_settings, user_func, mp_evaluation)
+        super().__init__(problem=problem,
+                    optimization_settings=optimization_settings,
+                    user_func=user_func,
+                    user_func_supports_parallel=user_func_supports_parallel,
+                    mp_evaluation=mp_evaluation,
+                    logging=logging)
         
         self.surrogate = surrogate
         self.opt_on_surrogate = opt_on_surrogate

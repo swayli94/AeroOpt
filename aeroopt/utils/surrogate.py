@@ -79,7 +79,7 @@ class SurrogateModel(ABC):
         return self._size
         
     @abstractmethod
-    def train(self, xs: np.ndarray, ys: np.ndarray, **kwargs) -> None:
+    def train(self, xs: np.ndarray, ys: np.ndarray) -> None:
         '''
         Train the surrogate model using the input/output data.
         
@@ -89,13 +89,11 @@ class SurrogateModel(ABC):
             Original input data.
         ys: np.ndarray [n, n_output]
             Original output data.
-        **kwargs: Any
-            Additional keyword arguments.
         '''
         pass
     
     @abstractmethod
-    def predict(self, xs: np.ndarray, **kwargs) -> np.ndarray:
+    def predict(self, xs: np.ndarray) -> np.ndarray:
         '''
         Predict the output using the input.
         
@@ -103,8 +101,6 @@ class SurrogateModel(ABC):
         -----------
         xs: np.ndarray [n, n_input]
             Original input data.
-        **kwargs: Any
-            Additional keyword arguments.
             
         Returns:
         --------
@@ -114,7 +110,7 @@ class SurrogateModel(ABC):
         pass
 
     @abstractmethod
-    def full_predict(self, xs: np.ndarray, **kwargs) -> Dict[str, Any]:
+    def full_predict(self, xs: np.ndarray) -> Dict[str, Any]:
         '''
         Predict the output using the input,
         including additional information such as the confidence interval, etc.
@@ -123,8 +119,6 @@ class SurrogateModel(ABC):
         -----------
         xs: np.ndarray [n, n_input]
             Original input data.
-        **kwargs: Any
-            Additional keyword arguments.
             
         Returns:
         --------
@@ -141,7 +135,7 @@ class SurrogateModel(ABC):
         pass
     
     @abstractmethod
-    def predict_for_adaptive_sampling(self, xs: np.ndarray, **kwargs) -> np.ndarray:
+    def predict_for_adaptive_sampling(self, xs: np.ndarray) -> np.ndarray:
         '''
         Predict the objective values for adaptive sampling.
         
@@ -149,8 +143,6 @@ class SurrogateModel(ABC):
         -----------
         xs: np.ndarray [n, n_input]
             Input data.
-        **kwargs: Any
-            Additional keyword arguments.
             
         Returns:
         --------
@@ -232,7 +224,7 @@ class Kriging(SurrogateModel):
         return span
     
     @property
-    def output_type(self) -> np.ndarray:
+    def output_type(self) -> list[int]:
         '''
         Type of the output variables.
         '''

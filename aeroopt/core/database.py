@@ -10,7 +10,7 @@ from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
 
 from typing import List, Tuple, Callable
-from aeroopt.core.individual import Individual
+from aeroopt.core.individual import Individual, ID_UNASSIGNED
 from aeroopt.core.problem import Problem
 from aeroopt.core.mpEvaluation import MultiProcessEvaluation
 
@@ -152,8 +152,8 @@ class Database(object):
         self._is_valid_database = False
     
     def copy_from_database(self, other: 'Database', 
-                        ID_list: List[int] = None, 
-                        index_list: List[int] = None,
+                        ID_list: List[int]|None = None, 
+                        index_list: List[int]|None = None,
                         deepcopy: bool = True) -> None:
         '''
         Copy the database from another database:
@@ -166,8 +166,10 @@ class Database(object):
         -----------
         other: Database
             Another database to copy from.
-        ID_list: List[int]
-            List of IDs of individuals to be selected. This has higher priority than `index_list`.
+        ID_list: List[int]|None
+            List of IDs of individuals to be selected.
+            If None, all individuals will be selected.
+            This has higher priority than `index_list`.
         index_list: List[int]
             List of index of individuals to be selected.
         deepcopy: bool
@@ -253,8 +255,8 @@ class Database(object):
         return np.max(self._id_list)
     
     def get_xs(self, scale: bool = False,
-                ID_list: List[int] = None, 
-                index_list: List[int] = None) -> np.ndarray:
+                ID_list: List[int]|None = None, 
+                index_list: List[int]|None = None) -> np.ndarray:
         '''
         Get input variables of individuals in the database.
         
@@ -262,10 +264,13 @@ class Database(object):
         -----------
         scale: bool
             If True, return scaled input variables.
-        ID_list: List[int]
-            List of IDs of individuals to be selected. This has higher priority than `index_list`.
-        index_list: List[int]
+        ID_list: List[int]|None
+            List of IDs of individuals to be selected.
+            If None, all individuals will be selected.
+            This has higher priority than `index_list`.
+        index_list: List[int]|None
             List of index of individuals to be selected.
+            If None, all individuals will be selected.
             
         Returns:
         --------
@@ -273,7 +278,7 @@ class Database(object):
             Input variables of individuals in the database.
         '''
         if self.size <= 0:
-            return None
+            return np.array([])
     
         if ID_list is not None:
             nn = len(ID_list)
@@ -300,9 +305,9 @@ class Database(object):
         return xs
     
     def get_ys(self, scale: bool = False,
-                type_list: List[int] = None,
-                ID_list: List[int] = None,
-                index_list: List[int] = None) -> np.ndarray:
+                type_list: List[int]|None = None,
+                ID_list: List[int]|None = None,
+                index_list: List[int]|None = None) -> np.ndarray:
         '''
         Get output variables of individuals in the database.
         
@@ -310,12 +315,16 @@ class Database(object):
         -----------
         scale: bool
             If True, return scaled output variables.
-        type_list: List[int]
+        type_list: List[int]|None
             List of types of output variables to be selected.
-        ID_list: List[int]
-            List of IDs of individuals to be selected. This has higher priority than `index_list`.
+            If None, all output variables will be selected.
+        ID_list: List[int]|None
+            List of IDs of individuals to be selected.
+            If None, all individuals will be selected.
+            This has higher priority than `index_list`.
         index_list: List[int]
             List of index of individuals to be selected.
+            If None, all individuals will be selected.
             
         Returns:
         --------
@@ -323,7 +332,7 @@ class Database(object):
             Output variables of individuals in the database.
         '''
         if self.size <= 0:
-            return None
+            return np.array([])
     
         if ID_list is not None:
             nn = len(ID_list)
@@ -353,8 +362,8 @@ class Database(object):
         return ys
     
     def get_unified_objectives(self, scale: bool = False,
-                ID_list: List[int] = None,
-                index_list: List[int] = None) -> np.ndarray:
+                ID_list: List[int]|None = None,
+                index_list: List[int]|None = None) -> np.ndarray:
         '''
         Return objective matrix with unified minimization direction.
         
@@ -362,10 +371,13 @@ class Database(object):
         -----------
         scale: bool
             If True, return scaled objectives.
-        ID_list: List[int]
-            List of IDs of individuals to be selected. This has higher priority than `index_list`.
+        ID_list: List[int]|None
+            List of IDs of individuals to be selected.
+            If None, all individuals will be selected.
+            This has higher priority than `index_list`.
         index_list: List[int]
             List of index of individuals to be selected.
+            If None, all individuals will be selected.
             
         Returns:
         --------
@@ -374,8 +386,8 @@ class Database(object):
         '''
         ys = self.get_ys(scale=scale, type_list=[1,-1],
                         ID_list=ID_list, index_list=index_list)
-        if ys is None:
-            return np.empty((0, 0))
+        if ys.size <= 0:
+            return np.array([])
 
         i_obj = 0
         for out_type in self.problem.problem_settings.output_type:
@@ -416,11 +428,11 @@ class Database(object):
         if is_multiple:
             n = x.shape[0]
             is_duplicated = [False] * n
-            closest_index = [None] * n
+            closest_index = [ID_UNASSIGNED] * n
         else:
             n = 1
             is_duplicated = False
-            closest_index = None
+            closest_index = ID_UNASSIGNED
         
         if self.size<=0:
             return is_duplicated, closest_index
@@ -433,16 +445,16 @@ class Database(object):
             is_scaled_x=True)
         
         min_dis = np.min(scaled_distance_matrix, axis=1) # [n]
-        closest_index = np.argmin(scaled_distance_matrix, axis=1) # [n]
+        closest_index = np.argmin(scaled_distance_matrix, axis=1,
+                                out=np.array([ID_UNASSIGNED]*n, dtype=int)) # [n]
     
         crit = self.critical_scaled_distance()
         if is_multiple:
-            for i in range(n):
-                is_duplicated[i] = (min_dis[i] < crit)
+            is_duplicated = [bool(dis < crit) for dis in min_dis]
+            closest_index = closest_index.tolist()
         else:
-            if min_dis[0] < crit:
-                is_duplicated = True
-            closest_index = closest_index[0]
+            is_duplicated = bool(min_dis[0] < crit)
+            closest_index = int(closest_index[0])
 
         return is_duplicated, closest_index
 
@@ -504,8 +516,8 @@ class Database(object):
         
         # Assign ID
         original_ID = indi.ID
-        if original_ID is not None:
-            if indi.ID in self._id_list:
+        if isinstance(original_ID, int):
+            if indi.ID in self._id_list or original_ID == ID_UNASSIGNED:
                 indi.ID = self.get_largest_ID() + 1
         else:
             indi.ID = self.get_largest_ID() + 1
@@ -521,13 +533,13 @@ class Database(object):
         text = f'Added individual (ID={indi.ID:3d}, original ID={original_ID})'
         return True, text
     
-    def delete_individual(self, ID: int = None, index: int = -1) -> None:
+    def delete_individual(self, ID: int|None = None, index: int = -1) -> None:
         '''
         Delete an individual from the database.
         
         Parameters:
         -----------
-        ID: int
+        ID: int|None
             ID of the individual to be deleted.
         index: int
             Index of the individual to be deleted.
@@ -626,18 +638,21 @@ class Database(object):
     #* Database-level manipulation
     
     def get_sub_database(self,
-                ID_list: List[int] = None, 
-                index_list: List[int] = None,
+                ID_list: List[int]|None = None, 
+                index_list: List[int]|None = None,
                 deepcopy: bool = True) -> 'Database':
         '''
         Create a sub-database from the database.
         
         Parameters:
         -----------
-        ID_list: List[int]
-            List of IDs of individuals to be selected. This has higher priority than `index_list`.
-        index_list: List[int]
+        ID_list: List[int]|None
+            List of IDs of individuals to be selected.
+            If None, all individuals will be selected.
+            This has higher priority than `index_list`.
+        index_list: List[int]|None
             List of index of individuals to be selected.
+            If None, all individuals will be selected.
         deepcopy: bool
             If True, the individuals are copied.
         
@@ -709,7 +724,7 @@ class Database(object):
     def merge_with_database(self,
                         other: 'Database',
                         deepcopy: bool = True,
-                        log_func: Callable = None) -> None:
+                        log_func: Callable|None = None) -> None:
         '''
         Merge the database with another database.
         
@@ -723,7 +738,7 @@ class Database(object):
             Another database to merge with.
         deepcopy: bool
             If True, the individuals are copied.
-        log_func: Callable
+        log_func: Callable|None
             Function to log the merge information.
             If None, print warning information to screen.
         '''
@@ -798,7 +813,6 @@ class Database(object):
             sub_database.add_individual(indi, deepcopy=False, print_warning_info=False)
             
         sub_database.update_id_list()        
-        sub_database.evaluate_constraints()
         
         return sub_database
 
@@ -900,6 +914,9 @@ class Database(object):
         
         wb = Workbook()
         ws = wb.active
+        if ws is None:
+            raise ValueError('Failed to create worksheet')
+        
         ws.title = sheet_name
         ws.append(header)
         
@@ -1011,10 +1028,10 @@ class Database(object):
     #* Evaluation
     
     def evaluate_individuals(self,
-                    mp_evaluation: MultiProcessEvaluation = None,
-                    user_func: Callable = None,
+                    mp_evaluation: MultiProcessEvaluation|None = None,
+                    user_func: Callable|None = None,
                     user_func_supports_parallel: bool = False,
-                    prefix_folder_name: str = None) -> None:
+                    prefix_folder_name: str|None = None) -> None:
         '''
         Evaluate the individuals (`y`) in the database,
         constraints are also evaluated.
@@ -1055,13 +1072,17 @@ class Database(object):
         list_name = []
         for i, indi in enumerate(self.individuals):
             xs[i, :] = indi.x
-            if indi.ID is None:
-                raise ValueError('Individual ID is None')
+            if not isinstance(indi.ID, int):
+                raise ValueError(f'Individual ID is not an integer: {indi.ID}')
+            if indi.ID < 0:
+                raise ValueError(f'Individual ID is negative: {indi.ID}')
             list_name.append(prefix_folder_name + str(indi.ID))
 
         # Evaluate individuals.
         if user_func_supports_parallel:
             # Directly call the user-defined function for parallel evaluation.
+            if user_func is None:
+                raise ValueError('User-defined function is None')
             list_succeed, ys = user_func(xs)
             
             if ys.shape != (self.size, self.problem.n_output):
@@ -1089,6 +1110,7 @@ class Database(object):
             for i, indi in enumerate(self.individuals):
                 
                 succeed = False
+                y = None
 
                 if callable(user_func):
                     try:
@@ -1118,10 +1140,8 @@ class Database(object):
                 indi.eval_constraints()
             else:
                 
-                indi.y = None
-                indi._scaled_y = None
+                indi.y = np.array([])
+                indi._scaled_y = np.array([])
                 indi.valid_evaluation = False
                 indi.constraint_violations = None
                 indi.sum_violation = np.inf
-
-        return None
