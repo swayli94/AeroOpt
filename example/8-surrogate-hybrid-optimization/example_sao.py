@@ -291,7 +291,6 @@ def run_one_benchmark(
         ratio_from_surrogate=opt_settings.ratio_from_surrogate,
         user_func=user_func,
         mp_evaluation=mp_eval,
-        post_process=None,
         rng=np.random.default_rng(int(sao_outer_de_rng_seed(bench_index))),
     )
     sao.user_func_supports_parallel = True

@@ -266,6 +266,7 @@ class OptMOEAD(OptBaseFramework):
             user_func=None,
             user_func_supports_parallel: bool = False,
             mp_evaluation: MultiProcessEvaluation|None = None,
+            save_result_files: bool = True,
             logging: bool = True,
             ):
 
@@ -275,6 +276,7 @@ class OptMOEAD(OptBaseFramework):
             user_func=user_func,
             user_func_supports_parallel=user_func_supports_parallel,
             mp_evaluation=mp_evaluation,
+            save_result_files=save_result_files,
             logging=logging,
         )
 

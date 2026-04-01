@@ -107,8 +107,7 @@ class SBO(OptBaseFramework):
             user_func: Callable|None = None,
             user_func_supports_parallel: bool = True,
             mp_evaluation: MultiProcessEvaluation|None = None,
-            pre_process: PreProcess|None = None,
-            post_process: PostProcessSBO|None = None,
+            save_result_files: bool = True,
             logging: bool = True):
         
         super().__init__(problem=problem,
@@ -116,14 +115,12 @@ class SBO(OptBaseFramework):
                     user_func=user_func,
                     user_func_supports_parallel=user_func_supports_parallel,
                     mp_evaluation=mp_evaluation,
+                    save_result_files=save_result_files,
                     logging=logging)
         
         self.surrogate = surrogate
         self.opt_on_surrogate = opt_on_surrogate
-        
-        self.pre_process = pre_process
-        self.post_process = post_process
-        
+                
         # Outputs for surrogate model
         self._set_outputs_for_surrogate()
         

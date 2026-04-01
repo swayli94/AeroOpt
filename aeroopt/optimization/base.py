@@ -73,6 +73,7 @@ class OptBaseFramework(ABC):
             user_func: Callable|None = None,
             user_func_supports_parallel: bool = False,
             mp_evaluation: MultiProcessEvaluation|None = None,
+            save_result_files: bool = True,
             logging: bool = True):
         
         self.problem = problem
@@ -82,6 +83,7 @@ class OptBaseFramework(ABC):
         self.mp_evaluation : MultiProcessEvaluation|None = mp_evaluation
         self.user_func_supports_parallel : bool = user_func_supports_parallel
         self.iteration : int = 0
+        self.save_result_files : bool = save_result_files
         self.logging : bool = logging
         
         # Processing objects manually defined in the main program.
@@ -341,6 +343,9 @@ class OptBaseFramework(ABC):
         '''
         Save the results of the optimization.
         '''
+        if not self.save_result_files:
+            return
+        
         os.makedirs(self.dir_summary, exist_ok=True)
         self.db_total.output_database_json(self.fname_db_total)
         self.db_elite.output_database_json(self.fname_db_elite)

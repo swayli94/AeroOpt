@@ -132,12 +132,6 @@ class SAO(OptBaseFramework):
     mp_evaluation: MultiProcessEvaluation
         Multi-process evaluation object defined in the entrance of the entire program.
         If None, use serial evaluation.
-    pre_process: PreProcess
-        Pre-processing of the `db_candidate` database that are predicted by the surrogate model.
-    post_process: PostProcess
-        Post-processing of the `db_total` and `db_valid` databases.
-        Also evaluate the performance of the surrogate model by
-        comparing the prediction and actual values of the candidates.
     rng: np.random.Generator
         Random generator for differential evolution in the main loop.
         If None, ``numpy.random.default_rng()`` is used.
@@ -156,24 +150,25 @@ class SAO(OptBaseFramework):
             opt_on_surrogate: OptBaseFramework,
             ratio_from_surrogate: float = 0.5,
             user_func: Callable|None = None,
+            user_func_supports_parallel: bool = False,
             mp_evaluation: MultiProcessEvaluation|None = None,
-            pre_process: PreProcess|None = None,
-            post_process: PostProcessSAO|None = None,
+            save_result_files: bool = True,
+            logging: bool = True,
             rng: np.random.Generator|None = None):
         
         super().__init__(
             problem,
             optimization_settings,
             user_func,
+            user_func_supports_parallel=user_func_supports_parallel,
             mp_evaluation=mp_evaluation,
+            save_result_files=save_result_files,
+            logging=logging,
         )
         
         self.surrogate = surrogate
         self.opt_on_surrogate = opt_on_surrogate
-        
-        self.pre_process = pre_process
-        self.post_process = post_process
-        
+
         self.algorithm_settings = algorithm_settings
         self.ratio_from_surrogate = ratio_from_surrogate
         self.rng = rng if rng is not None else np.random.default_rng()

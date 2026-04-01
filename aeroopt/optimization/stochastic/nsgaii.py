@@ -108,6 +108,7 @@ class OptNSGAII(OptBaseFramework):
         mp_evaluation: MultiProcessEvaluation|None = None,
         user_func_supports_parallel: bool = False,
         rng: np.random.Generator|None = None,
+        save_result_files: bool = True,
         logging: bool = True,
         ):
         
@@ -117,6 +118,7 @@ class OptNSGAII(OptBaseFramework):
             user_func=user_func,
             user_func_supports_parallel=user_func_supports_parallel,
             mp_evaluation=mp_evaluation,
+            save_result_files=save_result_files,
             logging=logging,
         )
     

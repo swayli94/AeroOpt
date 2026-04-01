@@ -283,8 +283,7 @@ def run_one_benchmark(
         surrogate=surrogate,
         opt_on_surrogate=opt_inner,
         user_func=user_func,
-        mp_evaluation=mp_eval,
-        post_process=None,
+        mp_evaluation=mp_eval
     )
     sbo.user_func_supports_parallel = True
     sbo.post_process = PostProcessSBO(sbo, surrogate)
