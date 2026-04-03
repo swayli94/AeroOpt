@@ -86,11 +86,9 @@ class PostProcessSAO(PostProcess):
         performance_dict_S = self.surrogate.evaluate_performance(xs[index_S], ys_actual[index_S])
         performance_dict_E = self.surrogate.evaluate_performance(xs[index_E], ys_actual[index_E])
         self.opt.log(f'Surrogate performance on "S" individuals:', level=2, prefix='    ')
-        for key, value in performance_dict_S.items():
-            self.opt.log(f'{key:10s}: {value}', level=2, prefix='    ')
+        self.opt.log(f'RMSE: {performance_dict_S["RMSE"]}', level=2, prefix='    ')
         self.opt.log(f'Surrogate performance on "E" individuals:', level=2, prefix='    ')
-        for key, value in performance_dict_E.items():
-            self.opt.log(f'{key:10s}: {value}', level=2, prefix='    ')
+        self.opt.log(f'RMSE: {performance_dict_E["RMSE"]}', level=2, prefix='    ')
 
         # Check dominance within db_candidate
         temp_db = copy.deepcopy(self.opt.db_candidate)

@@ -6,7 +6,7 @@ import os
 import json
 import numpy as np
 
-from typing import List, Callable
+from typing import List, Callable, Dict, Any
 
 
 class SettingsData(object):
@@ -50,7 +50,9 @@ class SettingsData(object):
         self.output_precision: np.ndarray = np.array([])
         
         self.critical_scaled_distance : float = 1.0e-6
-
+        
+        self.settings: Dict[str, Any] = {}
+        
         self.read_settings(fname_settings)
         
         self._check_settings()
@@ -86,6 +88,8 @@ class SettingsData(object):
         
         self.critical_scaled_distance = float(settings_data['critical_scaled_distance'])
 
+        self.settings = settings_data
+        
         return None
     
     @property
@@ -237,6 +241,8 @@ class SettingsProblem(object):
         self.constraint_strings : List[str] = []
         self.constraint_functions : List[Callable[[np.ndarray, np.ndarray], float]] = constraint_functions
         
+        self.settings: Dict[str, Any] = {}
+        
         self.read_settings(fname_settings)
         
         self._check_settings(data_settings)
@@ -263,6 +269,8 @@ class SettingsProblem(object):
         self.name_data_settings = settings_problem['name_data_settings']
         self.output_type = list(map(int, settings_problem['output_type']))
         self.constraint_strings = list(settings_problem['constraint_strings'])
+        
+        self.settings = settings_problem
         
         return None
 

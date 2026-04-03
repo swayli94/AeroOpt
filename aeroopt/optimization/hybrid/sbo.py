@@ -62,8 +62,7 @@ class PostProcessSBO(PostProcess):
         ys_actual = ys_actual[:, self.opt.index_outputs_for_surrogate]
 
         performance_dict = self.surrogate.evaluate_performance(xs, ys_actual)
-        for key, value in performance_dict.items():
-            self.opt.log(f'{key:10s}: {value}', level=2, prefix='    ')
+        self.opt.log(f'RMSE: {performance_dict["RMSE"]}', level=2, prefix='    ')
 
 
 class SBO(OptBaseFramework):

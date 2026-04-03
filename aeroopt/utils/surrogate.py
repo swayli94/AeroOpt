@@ -306,6 +306,15 @@ class Kriging(SurrogateModel):
         '''
         Train the surrogate model using the input/output data.
         '''
+        n_y_input = ys.shape[1]
+        if n_y_input != self.n_output:
+            if n_y_input == self.problem.n_output:
+                ys = ys[:, self._index_outputs]
+            else:
+                raise ValueError(f"Number of output variables in the training data ({n_y_input})" \
+                    f"does not match the number of output variables for the surrogate model ({self.n_output}),"
+                    f"nor the number of output variables in the problem ({self.problem.n_output}).")
+        
         if self.train_on_scaled_data:
             xt = self.problem.scale_x(xs)
             yt = self._scale_y(ys)
@@ -378,19 +387,53 @@ class Kriging(SurrogateModel):
         
         Using scaled data for evaluation when `train_on_scaled_data` is True.
         '''
+        n_y_input = ys_actual.shape[1]
+        if n_y_input != self.n_output:
+            if n_y_input == self.problem.n_output:
+                ys_actual = ys_actual[:, self._index_outputs]
+            else:
+                raise ValueError(f"Number of output variables in the actual data ({n_y_input})" \
+                    f"does not match the number of output variables for the surrogate model ({self.n_output}),"
+                    f"nor the number of output variables in the problem ({self.problem.n_output}).")
+
         if self.train_on_scaled_data:
+            
             xs = self.problem.scale_x(xs)
-            ys_actual = self._scale_y(ys_actual)
+            ys_actual_scaled = self._scale_y(ys_actual)
 
-        ys_pred = np.zeros((xs.shape[0], self.n_output))
-        for i in range(self.n_output):
-            pred = np.asarray(self._model[i].predict_values(xs), dtype=float)
-            ys_pred[:, i] = pred.reshape(-1)
+            ys_pred_scaled = np.zeros((xs.shape[0], self.n_output))
+            for i in range(self.n_output):
+                pred = np.asarray(self._model[i].predict_values(xs), dtype=float)
+                ys_pred_scaled[:, i] = pred.reshape(-1)
+            
+            ys_pred = self._scale_y(ys_pred_scaled, reverse=True)
+            error_scaled = ys_pred_scaled - ys_actual_scaled
+            rmse_scaled = np.sqrt(np.mean(error_scaled ** 2, axis=0))
+            mae_scaled = np.mean(np.abs(error_scaled), axis=0)
+            
+        else:
+            
+            ys_pred = np.zeros((xs.shape[0], self.n_output))
+            for i in range(self.n_output):
+                pred = np.asarray(self._model[i].predict_values(xs), dtype=float)
+                ys_pred[:, i] = pred.reshape(-1)
+                
+            rmse_scaled = 0.0
+            mae_scaled = 0.0
+            ys_pred_scaled = np.zeros_like(ys_pred)
+            error_scaled = np.zeros_like(ys_pred)
 
-        rmse = np.sqrt(np.mean((ys_pred - ys_actual) ** 2, axis=0))
-        mae = np.mean(np.abs(ys_pred - ys_actual), axis=0)
+        error = ys_pred - ys_actual
+        rmse = np.sqrt(np.mean((error) ** 2, axis=0))
+        mae = np.mean(np.abs(error), axis=0)
 
-        return {"RMSE": rmse, "MAE": mae}
+        performance = {
+            "RMSE": rmse, "MAE": mae, "y_predicted": ys_pred, "error": error,
+            "RMSE (scaled)": rmse_scaled, "MAE (scaled)": mae_scaled,
+            "y_predicted (scaled)": ys_pred_scaled, "error (scaled)": error_scaled,
+            }
+        
+        return performance
     
     def predict_for_adaptive_sampling(self, xs: np.ndarray) -> np.ndarray:
         '''
