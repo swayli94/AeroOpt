@@ -386,6 +386,9 @@ class Kriging(SurrogateModel):
         and actual values of the individuals.
         
         Using scaled data for evaluation when `train_on_scaled_data` is True.
+        
+        Returns a dict including RMSE, MAE, R2 (per output), and scaled counterparts
+        when applicable. ``R2 (scaled)`` is zeros if ``train_on_scaled_data`` is False.
         '''
         n_y_input = ys_actual.shape[1]
         if n_y_input != self.n_output:
@@ -395,6 +398,19 @@ class Kriging(SurrogateModel):
                 raise ValueError(f"Number of output variables in the actual data ({n_y_input})" \
                     f"does not match the number of output variables for the surrogate model ({self.n_output}),"
                     f"nor the number of output variables in the problem ({self.problem.n_output}).")
+
+        def _r2_per_output(y_true: np.ndarray, y_hat: np.ndarray) -> np.ndarray:
+            '''Coefficient of determination per output (1 - SS_res / SS_tot).'''
+            ss_res = np.sum((y_true - y_hat) ** 2, axis=0)
+            y_mean = np.mean(y_true, axis=0, keepdims=True)
+            ss_tot = np.sum((y_true - y_mean) ** 2, axis=0)
+            r2_out = np.empty(y_true.shape[1], dtype=float)
+            tol = 1e-12 * (np.abs(y_mean.ravel()) + 1.0) ** 2 + 1e-15
+            mask = ss_tot > tol
+            r2_out[mask] = 1.0 - ss_res[mask] / ss_tot[mask]
+            # Constant target: sklearn-style — perfect pred -> 1, else 0
+            r2_out[~mask] = np.where(ss_res[~mask] <= tol[~mask], 1.0, 0.0)
+            return r2_out
 
         if self.train_on_scaled_data:
             
@@ -410,7 +426,8 @@ class Kriging(SurrogateModel):
             error_scaled = ys_pred_scaled - ys_actual_scaled
             rmse_scaled = np.sqrt(np.mean(error_scaled ** 2, axis=0))
             mae_scaled = np.mean(np.abs(error_scaled), axis=0)
-            
+            r2_scaled = _r2_per_output(ys_actual_scaled, ys_pred_scaled)
+
         else:
             
             ys_pred = np.zeros((xs.shape[0], self.n_output))
@@ -422,15 +439,24 @@ class Kriging(SurrogateModel):
             mae_scaled = 0.0
             ys_pred_scaled = np.zeros_like(ys_pred)
             error_scaled = np.zeros_like(ys_pred)
+            r2_scaled = np.zeros(self.n_output, dtype=float)
 
         error = ys_pred - ys_actual
         rmse = np.sqrt(np.mean((error) ** 2, axis=0))
         mae = np.mean(np.abs(error), axis=0)
+        r2 = _r2_per_output(ys_actual, ys_pred)
 
         performance = {
-            "RMSE": rmse, "MAE": mae, "y_predicted": ys_pred, "error": error,
-            "RMSE (scaled)": rmse_scaled, "MAE (scaled)": mae_scaled,
-            "y_predicted (scaled)": ys_pred_scaled, "error (scaled)": error_scaled,
+            "RMSE": rmse,
+            "MAE": mae,
+            "R2": r2,
+            "y_predicted": ys_pred,
+            "error": error,
+            "RMSE (scaled)": rmse_scaled,
+            "MAE (scaled)": mae_scaled,
+            "R2 (scaled)": r2_scaled,
+            "y_predicted (scaled)": ys_pred_scaled,
+            "error (scaled)": error_scaled,
             }
         
         return performance
