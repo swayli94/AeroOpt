@@ -125,7 +125,8 @@ class TestGaussian:
 class TestGussian:
     def test_alias_equals_Gaussian(self):
         x = np.array([0.1, 0.2])
-        assert bm.Gussian(x) == bm.Gaussian(x)
+        with pytest.warns(DeprecationWarning, match="deprecated misspelling"):
+            assert bm.Gussian(x) == bm.Gaussian(x)
 
 
 class TestAckley:

@@ -252,7 +252,7 @@ class NRBO(Algorithm):
 class OptNRBO(OptBaseFramework):
     '''
     Optimization driver using NRBO for candidate generation.
-    
+
     Parameters:
     -----------
     problem: Problem
@@ -291,9 +291,9 @@ class OptNRBO(OptBaseFramework):
             mp_evaluation=mp_evaluation,
             save_result_files=save_result_files,
             logging=logging,
+            rng=rng,
         )
         self.algorithm_settings = algorithm_settings
-        self.rng = rng
 
         if self.problem.n_objective != 1:
             raise ValueError('OptNRBO only supports single-objective problems.')
@@ -302,13 +302,8 @@ class OptNRBO(OptBaseFramework):
         '''
         Generate NRBO candidates for the current iteration.
         '''
-        if self.db_valid.size <= max(5, int(self.population_size * 0.5)):
-            _db = self.db_total
-        else:
-            _db = self.db_valid
-
         NRBO.generate_candidate_individuals(
-            db=_db,
+            db=self.select_population_database(),
             db_candidate=self.db_candidate,
             population_size=self.population_size,
             iteration=self.iteration,
@@ -316,9 +311,3 @@ class OptNRBO(OptBaseFramework):
             deciding_factor=self.algorithm_settings.deciding_factor,
             rng=self.rng,
         )
-
-    def select_elite_from_valid(self) -> None:
-        '''
-        Select elite individuals from the valid archive.
-        '''
-        DominanceBasedAlgorithm.select_elite_from_valid(self.db_valid, self.db_elite)

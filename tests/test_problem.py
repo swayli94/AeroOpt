@@ -50,14 +50,14 @@ class TestProblemBasics:
 
 class TestProblemBoundsAndScale:
     def test_check_bounds_x(self, problem):
-        assert problem.check_bounds_x(np.array([0.5])) == True
-        assert problem.check_bounds_x(np.array([-0.1])) == False
-        assert problem.check_bounds_x(np.array([1.5])) == False
+        assert problem.check_bounds_x(np.array([0.5])) is True
+        assert problem.check_bounds_x(np.array([-0.1])) is False
+        assert problem.check_bounds_x(np.array([1.5])) is False
 
     def test_check_bounds_y(self, problem):
-        assert problem.check_bounds_y(np.array([0.0])) == True
-        assert problem.check_bounds_y(np.array([-0.5e6])) == True  # 在 [output_low, output_upp] 内
-        assert problem.check_bounds_y(np.array([2.0e6])) == False
+        assert problem.check_bounds_y(np.array([0.0])) is True
+        assert problem.check_bounds_y(np.array([-0.5e6])) is True  # 在 [output_low, output_upp] 内
+        assert problem.check_bounds_y(np.array([2.0e6])) is False
 
     def test_apply_bounds_x(self, problem):
         x = np.array([-0.2, 1.5])

@@ -27,7 +27,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from aeroopt.core.database import Database
 from aeroopt.core.individual import Individual
-from aeroopt.core.mpEvaluation import MultiProcessEvaluation
+from aeroopt.core.mp_evaluation import MultiProcessEvaluation
 from aeroopt.core.problem import Problem
 from aeroopt.core.settings import SettingsData, SettingsProblem
 

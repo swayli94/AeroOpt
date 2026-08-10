@@ -1,50 +1,47 @@
 '''
-Surrogate-based Optimization (SBO)
+Surrogate-based Optimization (SBO).
+
+Every candidate of an SBO iteration comes from an optimization run on the
+surrogate model: the surrogate is retrained on the valid database, an inner
+optimizer searches its adaptive-sampling criteria, and the resulting non-dominated
+designs are handed to the expensive evaluator.
 '''
-from typing import List, Callable, Tuple
+
+from __future__ import annotations
+
+from typing import Callable
 
 import numpy as np
-import functools
 
-from aeroopt.core import (
-    Problem, Individual, 
-    MultiProcessEvaluation
-)
+from aeroopt.core import Problem, Individual, MultiProcessEvaluation
 from aeroopt.optimization.settings import SettingsOptimization
-from aeroopt.optimization.base import OptBaseFramework, PreProcess, PostProcess
-from aeroopt.utils.surrogate import SurrogateModel
+from aeroopt.optimization.base import OptBaseFramework, PostProcess
+from aeroopt.optimization.hybrid.base import SurrogateOptimizationBase
 from aeroopt.optimization.moea import DominanceBasedAlgorithm
-
-
-def _surrogate_user_func(
-    xs: np.ndarray,
-    surrogate: SurrogateModel,
-    **kwargs,
-    ) -> Tuple[List[bool], np.ndarray]:
-    ys = surrogate.predict_for_adaptive_sampling(np.asarray(xs, dtype=float), **kwargs)
-    return [True] * len(xs), np.asarray(ys, dtype=float)
+from aeroopt.utils.surrogate import SurrogateModel
 
 
 class PostProcessSBO(PostProcess):
     '''
-    Post-processing of the `db_total` database after evaluation.
-    And evaluate the performance of the surrogate model by comparing the prediction
-    and actual values of the individuals in the `db_candidate` database.
-    
+    Report how well the surrogate predicted the candidates that were just
+    evaluated for real.
+
     Parameters:
     -----------
     opt: OptBaseFramework
-        Optimization base framework object.
+        Optimization base framework object; must be an :class:`SBO` instance.
+    surrogate: SurrogateModel
+        The surrogate model being assessed.
     '''
     def __init__(self, opt: OptBaseFramework, surrogate: SurrogateModel):
 
         super().__init__(opt)
 
         self.surrogate = surrogate
-        
+
     def apply(self) -> None:
         '''
-        Apply the post-processing to the `db_total` database.
+        Compare surrogate predictions against the true values of `db_candidate`.
         '''
         if self.surrogate.size <= 0 or self.opt.db_candidate.size <= 0:
             self.opt.log(
@@ -52,23 +49,23 @@ class PostProcessSBO(PostProcess):
                 level=2, prefix='    ')
             return None
 
-        self.opt.log(f'Evaluating the performance of the surrogate model.', level=1)
-        
+        self.opt.log('Evaluating the performance of the surrogate model.', level=1)
+
         if not isinstance(self.opt, SBO):
-            raise ValueError('PostProcessSBO can only be used with SBO.')
+            raise TypeError('PostProcessSBO can only be used with SBO.')
 
         xs = self.opt.db_candidate.get_xs(scale=False)
         ys_actual = self.opt.db_candidate.get_ys(scale=False)
         ys_actual = ys_actual[:, self.opt.index_outputs_for_surrogate]
 
-        performance_dict = self.surrogate.evaluate_performance(xs, ys_actual)
-        self.opt.log(f'RMSE: {performance_dict["RMSE"]}', level=2, prefix='    ')
+        performance = self.surrogate.evaluate_performance(xs, ys_actual)
+        self.opt.log(f'RMSE: {performance["RMSE"]}', level=2, prefix='    ')
 
 
-class SBO(OptBaseFramework):
+class SBO(SurrogateOptimizationBase):
     '''
     Surrogate-based Optimization (SBO).
-    
+
     Parameters:
     -----------
     problem: Problem
@@ -78,127 +75,66 @@ class SBO(OptBaseFramework):
     surrogate: SurrogateModel
         Surrogate model for optimization.
     opt_on_surrogate: OptBaseFramework
-        Optimization object on the surrogate model.
+        Optimization object run on the surrogate model.
     user_func: Callable
-        User-defined function to evaluate the individuals.
-        If None, use external evaluation script.
+        User-defined function to evaluate the individuals, i.e. the expensive
+        one. If None, use external evaluation script.
+    user_func_supports_parallel: bool
+        Whether `user_func` takes the whole `xs` matrix at once. This concerns
+        the expensive evaluator only; the inner optimizer's own flag is set
+        internally when it is pointed at the surrogate.
     mp_evaluation: MultiProcessEvaluation
         Multi-process evaluation object defined in the entrance of the entire program.
         If None, use serial evaluation.
-    pre_process: PreProcess
-        Pre-processing of the `db_candidate` database that are predicted by the surrogate model.
-    post_process: PostProcess
-        Post-processing of the `db_total` and `db_valid` databases.
-        Also evaluate the performance of the surrogate model by
-        comparing the prediction and actual values of the candidates.
-        
+
     Attributes:
     -----------
     outputs_for_surrogate: List[str]
-        List of names of outputs that are predicted by the surrogate model.
+        Names of the outputs predicted by the surrogate model.
     index_outputs_for_surrogate: np.ndarray
-        Indices of the output variables that are predicted by the surrogate model.
+        Indices of those outputs within the global problem's output vector.
     '''
     def __init__(self, problem: Problem,
             optimization_settings: SettingsOptimization,
             surrogate: SurrogateModel,
             opt_on_surrogate: OptBaseFramework,
             user_func: Callable|None = None,
-            user_func_supports_parallel: bool = True,
+            user_func_supports_parallel: bool = False,
             mp_evaluation: MultiProcessEvaluation|None = None,
             save_result_files: bool = True,
-            logging: bool = True):
-        
-        super().__init__(problem=problem,
-                    optimization_settings=optimization_settings,
-                    user_func=user_func,
-                    user_func_supports_parallel=user_func_supports_parallel,
-                    mp_evaluation=mp_evaluation,
-                    save_result_files=save_result_files,
-                    logging=logging)
-        
-        self.surrogate = surrogate
-        self.opt_on_surrogate = opt_on_surrogate
-                
-        # Outputs for surrogate model
-        self._set_outputs_for_surrogate()
-        
-    @property
-    def outputs_for_surrogate(self) -> List[str]:
-        '''
-        List of names of outputs that are predicted by the surrogate model.
-        '''
-        return self._outputs_for_surrogate
-    
-    @property
-    def index_outputs_for_surrogate(self) -> np.ndarray:
-        '''
-        Indices of the output variables that are predicted by the surrogate model.
-        
-        This is used to select the output variables from the original output variables.
-        '''
-        return self._index_outputs_for_surrogate
-    
-    def _set_outputs_for_surrogate(self) -> None:
-        '''
-        Set the output variables that are predicted by the surrogate model.
-        '''
-        self._outputs_for_surrogate = self.surrogate.problem.name_output
-        
-        try:
-            self._index_outputs_for_surrogate = np.array(
-                [self.problem.name_output.index(name) 
-                for name in self._outputs_for_surrogate], dtype=int)
-            
-        except Exception as e:
-            self.log(f'Outputs defined in the surrogate model are not in the global optimization problem.',
-                        level=2, prefix='    ')
-            self.log(f'Error message: {e}', level=2, prefix='    ')
-            raise Exception('Surrogate model problem error.') from e
-    
-    #TODO: Can be adapted
-    def update_parameters(self) -> None:
-        '''
-        Surrogate model training with `db_valid` database.
-        '''
-        xs = self.db_valid.get_xs(scale=False)
-        ys = self.db_valid.get_ys(scale=False)
-        ys = ys[:, self.index_outputs_for_surrogate]
-        self.surrogate.train(xs, ys)
-    
+            logging: bool = True,
+            rng: np.random.Generator|None = None):
+
+        super().__init__(
+            problem=problem,
+            optimization_settings=optimization_settings,
+            surrogate=surrogate,
+            opt_on_surrogate=opt_on_surrogate,
+            user_func=user_func,
+            user_func_supports_parallel=user_func_supports_parallel,
+            mp_evaluation=mp_evaluation,
+            save_result_files=save_result_files,
+            logging=logging,
+            rng=rng,
+        )
+
     def generate_candidate_individuals(self) -> None:
         '''
-        Generate candidate individuals using the surrogate model.
+        Fill `db_candidate` with the best designs found on the surrogate model.
         '''
-        self.opt_on_surrogate.initialize()
-
-        # Set the user function for the surrogate model
-        user_func = functools.partial(_surrogate_user_func, surrogate=self.surrogate)
-        self.opt_on_surrogate.user_func = user_func
-        self.opt_on_surrogate.user_func_supports_parallel = True
-        
-        # Optimization on the surrogate model
-        self.opt_on_surrogate.main()
-
-        if self.opt_on_surrogate.db_valid.size <= max(5, int(self.population_size * 0.5)):
-            _db = self.opt_on_surrogate.db_total
-        else:
-            _db = self.opt_on_surrogate.db_valid
+        self._run_optimization_on_surrogate()
 
         temp_parents = DominanceBasedAlgorithm.build_temporary_parent_database(
-            _db, self.population_size)
-        n_pop = temp_parents.size
-        
-        # Get the candidate individuals from the surrogate model
+            self._population_database_of_surrogate(), self.population_size)
+
         self.db_candidate.empty_database()
-        
-        for i in range(n_pop):
 
-            x = temp_parents.individuals[i].x
+        for parent in temp_parents.individuals:
 
-            indi = Individual(problem=self.problem, x=x)
+            indi = Individual(problem=self.problem, x=parent.x)
             indi.source = 'surrogate_prediction'
             indi.generation = self.iteration
+
             added, warning_text = self.db_candidate.add_individual(
                 indi,
                 check_duplication=True,
@@ -206,12 +142,6 @@ class SBO(OptBaseFramework):
                 deepcopy=False,
                 print_warning_info=False,
             )
-            
+
             if not added:
                 self.log(warning_text, level=2, prefix='  > ')
-
-    def select_elite_from_valid(self) -> None:
-        '''
-        Select elite individuals from the valid database.
-        '''
-        DominanceBasedAlgorithm.select_elite_from_valid(self.db_valid, self.db_elite)

@@ -26,10 +26,10 @@ __all__ = [
     'OptBaseFramework',
     'PreProcess',
     'PostProcess',
-    
+
     'DominanceBasedAlgorithm',
     'SettingsOptimization',
-    
+
     'SettingsNSGAII',
     'NSGAII',
     'OptNSGAII',

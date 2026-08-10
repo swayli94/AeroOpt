@@ -2,12 +2,14 @@
 Utility functions.
 '''
 
+from __future__ import annotations
+
 import datetime
-import numpy as np
-import platform
 import os
 
-from typing import List, Tuple, Optional
+import numpy as np
+
+from typing import Optional
 
 
 def check_folder(folder: str) -> str:
@@ -20,34 +22,40 @@ def check_folder(folder: str) -> str:
     return folder
 
 
-def init_log(folder_result, fname='logging.log') -> None:
+def init_log(folder_result: str, fname: str = 'logging.log') -> None:
     '''
-    Initialize logging
-    '''
-    f0 = open(fname, 'w')
-    f0.write('\n')
-    now_time = datetime.datetime.now()
-    f0.write('Time:        '+now_time.strftime('%Y-%m-%d %H:%M:%S \n'))
-    f0.write('Result path: ' + str(folder_result) + '\n')
+    Create (or truncate) the log file and write its header.
 
-    f0.write('\n')
-    f0.write('============================== \n')
-    f0.write('\n')
-    f0.close()
-    
+    The parent directory of `fname` is created when missing.
+    '''
+    directory = os.path.dirname(os.path.abspath(fname))
+    os.makedirs(directory, exist_ok=True)
+
+    now_time = datetime.datetime.now()
+
+    with open(fname, 'w', encoding='utf-8') as f:
+        f.write('\n')
+        f.write('Time:        ' + now_time.strftime('%Y-%m-%d %H:%M:%S \n'))
+        f.write('Result path: ' + str(folder_result) + '\n')
+        f.write('\n')
+        f.write('============================== \n')
+        f.write('\n')
+
+
+
 def log(text: str, prefix='>>> ', fname: Optional[str] = 'logging.log', print_on_screen: bool = True) -> None:
     '''
     Log time and text. If ``fname`` is None, only print to screen when ``print_on_screen`` is True.
     '''
     if print_on_screen:
         print(prefix+text)
-        
+
     if fname is None:
         return
 
     now_time = datetime.datetime.now()
     _time = now_time.strftime('%Y-%m-%d %H:%M:%S | ')
-    
+
     with open(fname, 'a', encoding='utf-8') as f:
         f.write(_time+prefix+text+'\n')
 
@@ -59,7 +67,7 @@ def compare_ndarray(x1: np.ndarray, x2: np.ndarray) -> int:
     -----------
     x1, x2: np.ndarray
         Arrays to compare.
-    
+
     Returns:
     --------
     value: int

@@ -1,6 +1,9 @@
 '''
 Base framework for optimization.
 '''
+
+from __future__ import annotations
+
 import os
 import numpy as np
 import time
@@ -13,14 +16,59 @@ from aeroopt.core import (
     MultiProcessEvaluation,
     init_log, log
 )
-from aeroopt.optimization.settings import SettingsOptimization
+from aeroopt.optimization.settings import (
+    SettingsOptimization, SettingsGeneticOperators,
+)
+from aeroopt.optimization.moea import DominanceBasedAlgorithm
 from aeroopt.analysis.analyze_database import AnalyzeDatabase
+
+
+#* An archive smaller than this is considered too small to drive evolution on
+#* its own, so the (larger, possibly infeasible) total database is used instead.
+MIN_VALID_ARCHIVE_SIZE = 5
+MIN_VALID_ARCHIVE_RATIO = 0.5
+
+
+def select_population_database(db_valid: Database, db_total: Database,
+                               population_size: int) -> Database:
+    '''
+    Choose the database that offspring are generated from.
+
+    The valid archive holds only feasible, successfully evaluated individuals
+    and is the natural parent pool. Early in a run (or on a heavily constrained
+    problem) it can be too small to support meaningful selection and variation,
+    so the total database is used instead --- its individuals are ranked with
+    the constraint-aware dominance rules of
+    :meth:`~aeroopt.core.individual.Individual.check_dominance`, which prefer
+    feasible over infeasible and lower total violation among infeasible ones.
+
+    Parameters:
+    -----------
+    db_valid: Database
+        Archive of feasible individuals.
+    db_total: Database
+        Archive of all individuals, including infeasible ones.
+    population_size: int
+        Population size of the optimization.
+
+    Returns:
+    --------
+    db: Database
+        `db_valid` when it is large enough, otherwise `db_total`.
+    '''
+    threshold = max(MIN_VALID_ARCHIVE_SIZE,
+                    int(population_size * MIN_VALID_ARCHIVE_RATIO))
+
+    if db_valid.size <= threshold:
+        return db_total
+
+    return db_valid
 
 
 class OptBaseFramework(ABC):
     '''
     Base framework for optimization.
-    
+
     Parameters:
     -----------
     problem: Problem
@@ -37,11 +85,17 @@ class OptBaseFramework(ABC):
     mp_evaluation: MultiProcessEvaluation
         Multi-process evaluation object defined in the entrance of the entire program.
         If None, use serial evaluation.
-        
+    rng: np.random.Generator|None
+        Random generator used by the evolutionary operators. If None, one is
+        created from `optimization_settings.seed`, so a seed in the settings
+        file makes the whole run reproducible.
+
     Attributes:
     -----------
     iteration: int
         The current iteration number.
+    rng: np.random.Generator
+        Random generator used by the evolutionary operators.
     pre_process: PreProcess|None
         Pre-processing of the `db_candidate` database to be evaluated.
     post_process: PostProcess|None
@@ -62,7 +116,7 @@ class OptBaseFramework(ABC):
     analyze_valid: AnalyzeDatabase
         Analysis of the valid database to:
         (1) adjust candidate input variables to be feasible.
-        
+
     Example:
     ---------
     >>> def user_func(x: np.ndarray, **kwargs) -> Tuple[bool, np.ndarray]:
@@ -74,8 +128,9 @@ class OptBaseFramework(ABC):
             user_func_supports_parallel: bool = False,
             mp_evaluation: MultiProcessEvaluation|None = None,
             save_result_files: bool = True,
-            logging: bool = True):
-        
+            logging: bool = True,
+            rng: np.random.Generator|None = None):
+
         self.problem = problem
         self.optimization_settings = optimization_settings
 
@@ -85,47 +140,52 @@ class OptBaseFramework(ABC):
         self.iteration : int = 0
         self.save_result_files : bool = save_result_files
         self.logging : bool = logging
-        
+
+        self.rng : np.random.Generator = (
+            rng if rng is not None
+            else np.random.default_rng(optimization_settings.seed))
+
+
         # Processing objects manually defined in the main program.
-        self.pre_process : 'PreProcess|None' = None
-        self.post_process : 'PostProcess|None' = None
-        
+        self.pre_process : PreProcess|None = None
+        self.post_process : PostProcess|None = None
+
         # Database
         self.db_total = Database(self.problem, database_type='total')
         self.db_valid = Database(self.problem, database_type='valid')
         self.db_elite = Database(self.problem, database_type='elite')
         self.db_candidate = Database(self.problem, database_type='population')
-        
+
         # Analysis of the database
         self.analyze_total = AnalyzeDatabase(self.db_total,
                                variables_for_calculating_potential=None,
                                critical_potential=self.optimization_settings.critical_potential_x)
-        
+
         self.analyze_valid = AnalyzeDatabase(self.db_valid,
                                variables_for_calculating_potential=None,
                                critical_potential=self.optimization_settings.critical_potential_x)
-        
+
         # Attributes
         self._start_time = time.perf_counter()
-        
+
         if self.logging:
             init_log(self.dir_summary, self.fname_log)
             self.log(f'Optimization [{self.name}] initialized.', level=0, prefix='=== ')
-        
+
     @property
     def population_size(self) -> int:
         '''
         Number of individuals in the population.
         '''
         return self.optimization_settings.population_size
-    
+
     @property
     def max_iterations(self) -> int:
         '''
         Maximum number of iterations in the optimization.
         '''
         return self.optimization_settings.max_iterations
-    
+
     @property
     def name(self) -> str:
         '''
@@ -133,7 +193,7 @@ class OptBaseFramework(ABC):
         `{OptimizationName}-{ProblemName}`
         '''
         return self.optimization_settings.name + '-' + self.problem.name
-    
+
     @property
     def dir_save(self) -> str:
         '''
@@ -160,7 +220,7 @@ class OptBaseFramework(ABC):
         '''
         Name of the log file defined in the optimization settings.
         '''
-        return os.path.join(self.optimization_settings.working_directory, 
+        return os.path.join(self.optimization_settings.working_directory,
                             self.optimization_settings.fname_log)
 
     @property
@@ -176,12 +236,12 @@ class OptBaseFramework(ABC):
         Name of the elite database file.
         '''
         return os.path.join(self.dir_summary, self.optimization_settings.fname_db_elite)
-    
+
     @property
     def level(self) -> int:
         '''
         Level of the information to be printed on the screen.
-        
+
         The text will be printed on the screen if its level <= self.level.
         '''
         return self.optimization_settings.info_level_on_screen
@@ -191,9 +251,21 @@ class OptBaseFramework(ABC):
         '''
         Maximum ID of the individuals in the total database.
         '''
-        if self.db_total.size <= 0:
-            return 0
-        return int(np.max(self.db_total._id_list))
+        return self.db_total.get_largest_ID()
+
+    def select_population_database(self) -> Database:
+        '''
+        Choose the database that offspring are generated from.
+
+        See the module-level :func:`select_population_database` for the rule.
+
+        Returns:
+        --------
+        db: Database
+            `db_valid` when it is large enough, otherwise `db_total`.
+        '''
+        return select_population_database(
+            self.db_valid, self.db_total, self.population_size)
 
     def initialize(self) -> None:
         '''
@@ -205,60 +277,60 @@ class OptBaseFramework(ABC):
         self.db_candidate.empty_database()
         self.iteration = 0
         self._start_time = time.perf_counter()
-        
+
         self.log(f'Optimization [{self.name}] initialized.', level=0, prefix='=== ')
 
     #* Main procedures
-    
+
     def main(self) -> None:
         '''
         Main loop of the optimization.
         '''
         self.resume()
-        
+
         self.initialize_population()
-        
+
         self.select_elite_from_valid()
-        
+
         self.save_results()
-        
+
         while not self.termination():
-            
+
             self.iteration += 1
             t0 = time.perf_counter()
             self.log(f'Iteration {self.iteration} started.', level=1, prefix='=== ')
-            
+
             self.update_parameters()
-            
+
             self.generate_candidate_individuals()
-            
+
             if self.pre_process is not None:
                 self.pre_process.apply()
-                
+
             self.evaluate_db_candidate()
-            
+
             self.update_total_and_valid_with_candidate()
-            
+
             if self.post_process is not None:
                 self.post_process.apply()
-                
+
             self.select_elite_from_valid()
-            
+
             self.save_results()
-            
+
             t1 = time.perf_counter()
             self.log(f'Iteration {self.iteration} finished in {(t1-t0)/60.0:.2f} min.', level=1)
-            
+
         time_elapsed = time.perf_counter() - self._start_time
         self.log(f'Optimization [{self.name}] finished in {time_elapsed/60.0:.2f} min.', level=0, prefix='=== ')
-    
+
     def resume(self) -> None:
         '''
         Resume the optimization from previous results.
         '''
         if not self.optimization_settings.resume:
             return None
-        
+
         fname = os.path.join(self.dir_summary, self.optimization_settings.fname_db_resume)
 
         self.db_total.read_database_json(fname)
@@ -281,52 +353,51 @@ class OptBaseFramework(ABC):
         - update `db_total` and `db_valid`
         - post-processing of `db_total` and `db_valid`
         '''
-        t0 = time.perf_counter()
-        self.log(f'Initial population preparation started.', level=1)
-        
+        self.log('Initial population preparation started.', level=1)
+
         self.generate_initial_individuals()
-        
+
         if self.db_candidate.size > 0:
-            
+
             if self.pre_process is not None:
                 self.pre_process.apply()
-                
+
             self.evaluate_db_candidate()
-        
+
         self.update_total_and_valid_with_candidate()
-        
+
         if self.post_process is not None:
             self.post_process.apply()
-            
+
         self.log(f"Initial population prepared: valid={self.db_valid.size}.", level=1)
-        
+
     #TODO: Can be adapted
     def generate_initial_individuals(self) -> None:
         '''
         Generate the initial individuals for optimization.
-        
+
         - this is the default implementation with random sampling.
         - can be adapted to other methods, e.g., Design of Experiments, perturbation, user-defined, etc.
         - the initial individuals are stored in `db_candidate` database.
         '''
         # xs = np.random.rand(self.population_size, self.problem.n_input)
         # xs = self.problem.scale_x(xs, reverse=True)
-        
+
         if self.optimization_settings.force_initial_population_size is not None:
             population_size = self.optimization_settings.force_initial_population_size
         else:
             population_size = self.population_size
-        
+
         if population_size <= 0:
             self.db_candidate.empty_database()
             self.log('Initial population size is set to 0.', level=1)
             return
-        
+
         xs = self.problem.latin_hypercube_sampling(population_size,
                                     scaled_values=False,
                                     sample_variables=None,
                                     seed=self.optimization_settings.seed)
-        
+
         self.db_candidate.empty_database()
         for x in xs:
             indi = Individual(problem=self.problem, x=x)
@@ -350,7 +421,7 @@ class OptBaseFramework(ABC):
         Update settings and parameters of the optimization.
         '''
         return None
-    
+
     #TODO: Can be adapted
     def save_results(self) -> None:
         '''
@@ -358,18 +429,18 @@ class OptBaseFramework(ABC):
         '''
         if not self.save_result_files:
             return
-        
+
         os.makedirs(self.dir_summary, exist_ok=True)
         self.db_total.output_database_json(self.fname_db_total)
         self.db_elite.output_database_json(self.fname_db_elite)
-    
+
     @abstractmethod
     def generate_candidate_individuals(self) -> None:
         '''
         Generate candidate individuals during the optimization,
         which are stored in `db_candidate` database before evaluation.
         The `db_candidate` database is generated from `db_valid` database:
-        
+
         - create a temporary parent database by selection from `db_valid`
         - evolution (crossover, mutation, etc.) of the parent database
         - add user-defined new individuals
@@ -383,7 +454,7 @@ class OptBaseFramework(ABC):
         then add the individuals to `db_total`.
         '''
         t0 = time.perf_counter()
-        
+
         self.db_candidate.evaluate_individuals(mp_evaluation=self.mp_evaluation,
                                 user_func=self.user_func,
                                 user_func_supports_parallel=self.user_func_supports_parallel)
@@ -400,10 +471,10 @@ class OptBaseFramework(ABC):
         '''
         n_previous_total = self.db_total.size
         n_previous_valid = self.db_valid.size
-        
+
         for indi in self.db_candidate.individuals:
             indi.generation = self.iteration
-        
+
         self.db_total.merge_with_database(
             self.db_candidate, deepcopy=True, log_func=self.log)
 
@@ -417,25 +488,24 @@ class OptBaseFramework(ABC):
             self.analyze_total.database = self.db_total
         if self.analyze_valid is not None:
             self.analyze_valid.database = self.db_valid
-        
+
         n_added_total = self.db_total.size - n_previous_total
         n_added_valid = self.db_valid.size - n_previous_valid
-        
+
         self.log(f'Add {n_added_total} individuals to total, updated to {self.db_total.size}.',
                     level=1, prefix='    ')
         self.log(f'Add {n_added_valid} individuals to valid, updated to {self.db_valid.size}.',
                     level=1, prefix='    ')
 
-    @abstractmethod
     def select_elite_from_valid(self) -> None:
         '''
-        Select elite individuals from the valid database:
-        
-        - Pareto-dominance ranking (e.g., NSGA-II)
-        - Crowding-distance assignment (e.g., NSGA-II)
-        - other selection methods (e.g., RVEA, MOEA/D, etc.)
+        Select elite individuals from the valid database into `db_elite`.
+
+        The default is Pareto-dominance ranking plus crowding-distance
+        assignment, which stores the first non-dominated front. Override this
+        to use a different elite criterion (e.g. an indicator-based one).
         '''
-        pass
+        DominanceBasedAlgorithm.select_elite_from_valid(self.db_valid, self.db_elite)
 
     #* Support functions
 
@@ -445,7 +515,7 @@ class OptBaseFramework(ABC):
         '''
         if not self.logging:
             return
-        
+
         log(text, prefix=prefix, fname=self.fname_log,
                 print_on_screen=(level<=self.level))
 
@@ -458,13 +528,62 @@ class OptBaseFramework(ABC):
             self.db_candidate.individuals[i].ID = id_max + i
 
 
+class OptGeneticFramework(OptBaseFramework):
+    '''
+    Base class for drivers whose offspring come from the SBX / polynomial-mutation
+    operator pair (NSGA-II, NSGA-III, RVEA, MOEA/D).
+
+    It only adds the handling of the shared genetic-operator settings; the
+    optimization loop is unchanged from :class:`OptBaseFramework`.
+
+    Parameters:
+    -----------
+    algorithm_settings: SettingsGeneticOperators
+        Crossover and mutation settings of the algorithm.
+
+    Other parameters are forwarded to :class:`OptBaseFramework`.
+    '''
+    def __init__(self, problem: Problem,
+            optimization_settings: SettingsOptimization,
+            algorithm_settings: SettingsGeneticOperators,
+            user_func: Callable|None = None,
+            user_func_supports_parallel: bool = False,
+            mp_evaluation: MultiProcessEvaluation|None = None,
+            save_result_files: bool = True,
+            logging: bool = True,
+            rng: np.random.Generator|None = None):
+
+        super().__init__(
+            problem=problem,
+            optimization_settings=optimization_settings,
+            user_func=user_func,
+            user_func_supports_parallel=user_func_supports_parallel,
+            mp_evaluation=mp_evaluation,
+            save_result_files=save_result_files,
+            logging=logging,
+            rng=rng,
+        )
+
+        self.algorithm_settings = algorithm_settings
+
+    @property
+    def mut_rate_per_variable(self) -> float:
+        '''
+        Polynomial-mutation probability applied to each input variable.
+
+        The configured `mut_rate` is the expected number of mutated variables
+        per individual, so it is divided by the number of input variables.
+        '''
+        return self.algorithm_settings.mut_rate / max(self.problem.n_input, 1)
+
+
 class PreProcess(ABC):
     '''
     Pre-processing of `db_candidate` database in each iteration.
-    
+
     The databases are accessed through the `OptBaseFramework` object, `opt`.
     The `db_candidate` is modified in place.
-    
+
     Parameters:
     -----------
     opt: OptBaseFramework
@@ -473,9 +592,9 @@ class PreProcess(ABC):
     def __init__(self, opt: OptBaseFramework):
 
         self.opt = opt
-        
+
         self.pre_process_folder : str = 'PreProcess'
-        
+
     @abstractmethod
     def apply(self) -> None:
         '''
@@ -483,7 +602,7 @@ class PreProcess(ABC):
         '''
         self.opt.log(f'Pre-processing of {self.opt.db_candidate.size} candidates started.', level=1)
         pass
-    
+
     def _restrict_x_values_by_valid_database(self, xs: np.ndarray,
                         min_scaled_distance: float = 0.0,
                         max_scaled_distance: float = 1.0,
@@ -493,7 +612,7 @@ class PreProcess(ABC):
         Restrict the input variables of candidates,
         so that their scaled distances to the valid individuals in `db_valid`
         are within [min_scaled_distance, max_scaled_distance].
-        
+
         Parameters:
         -----------
         xs: np.ndarray [n_candidate, n_input]
@@ -505,36 +624,37 @@ class PreProcess(ABC):
         ID_list: List[int]|None
             List of local IDs of the `xs` to be restricted.
             If None, use index of `xs` as the list of IDs.
-        
+
         Returns:
         --------
         xs_new: np.ndarray [n_candidate, n_input]
             Input variables of the candidates after restriction.
         '''
-        xs_new = np.zeros_like(xs)
         n_candidate = xs.shape[0]
 
         if n_candidate <= 0 or self.opt.db_valid.size <= 0:
             return xs
-        
+
+        xs_new = np.zeros_like(xs)
+
         if ID_list is None:
             ID_list = list(range(n_candidate))
 
         scaled_xs = self.opt.problem.scale_x(xs)
-        
+
         distance_matrix = self.opt.analyze_valid.calculate_distance_to_database(
                                 scaled_xs, update_attributes=True) # [n_candidate, n_valid]
 
         min_distance = np.min(distance_matrix, axis=1) # [n_candidate]
-        
+
         critical_scaled_distance = self.opt.problem.critical_scaled_distance
         min_scaled_distance = max(min_scaled_distance, critical_scaled_distance)
         max_scaled_distance = max(max_scaled_distance, critical_scaled_distance)
 
         for i in range(n_candidate):
-            
+
             min_d = max(min_distance[i], 0.0)
-            
+
             if min_d <= critical_scaled_distance:
                 # Duplicated with a valid individual (lower than the problem's critical scaled distance).
                 # Randomly select one from some nearest valid individuals (exclude the duplicated one)
@@ -543,56 +663,56 @@ class PreProcess(ABC):
                     self.opt.log(f'Candidate #{ID_list[i]:2d}: duplicated with the only valid individual.',
                             level=2, prefix='  - ')
                     continue
-                
+
                 n_near = min(5, self.opt.db_valid.size)
                 indices = np.argsort(distance_matrix[i])[1:n_near]
                 j_valid = np.random.choice(indices)
                 indi_ref = self.opt.analyze_valid.database.individuals[j_valid]
-                
+
                 _distance = distance_matrix[i, j_valid]
                 _new_d = min_scaled_distance + np.random.uniform(0.2, 0.8)*(max_scaled_distance-min_scaled_distance)
                 ratio = _new_d / _distance
-                
+
                 xs_new[i] = indi_ref.x + ratio * (xs[i] - indi_ref.x)
-                
+
                 self.opt.log(f'Candidate #{ID_list[i]:2d}: duplicated with the' +
                             f' nearest valid individual X (ID={indi_ref.ID:4d}),' +
                             f' adjust towards another valid individual by ratio {ratio:.2f}.',
                             level=2, prefix='  - ')
                 continue
-            
+
             elif min_d < min_scaled_distance:
                 # Too close to the nearest valid individual.
-                
+
                 j_valid = np.argmin(distance_matrix[i])
                 indi_ref = self.opt.analyze_valid.database.individuals[j_valid]
                 ratio = min_scaled_distance / min_d
                 xs_new[i] = indi_ref.x + ratio * (xs[i] - indi_ref.x)
-                
+
                 self.opt.log(f'Candidate #{ID_list[i]:2d}: too close to the' +
-                            f' nearest valid individual X (ID={indi_ref.ID:4d}),' + 
+                            f' nearest valid individual X (ID={indi_ref.ID:4d}),' +
                             f' adjust distance by ratio {ratio:.2f} away from X.',
                             level=2, prefix='  - ')
-                
+
             elif min_d > max_scaled_distance:
                 # Too far from the nearest valid individual.
-                
+
                 j_valid = np.argmin(distance_matrix[i])
                 indi_ref = self.opt.analyze_valid.database.individuals[j_valid]
                 ratio = max_scaled_distance / min_d
                 xs_new[i] = indi_ref.x + ratio * (xs[i] - indi_ref.x)
-                
+
                 self.opt.log(f'Candidate #{ID_list[i]:2d}: too far from the' +
-                            f' nearest valid individual X (ID={indi_ref.ID:4d}),' + 
+                            f' nearest valid individual X (ID={indi_ref.ID:4d}),' +
                             f' adjust distance by ratio {ratio:.2f} towards X.',
                             level=2, prefix='  - ')
-                
+
             else:
-                
+
                 xs_new[i] = xs[i]
-        
+
         self.opt.problem.apply_bounds_x(xs_new)
-        
+
         return xs_new
 
     def _check_pre_processing_feasibility(self, xs: np.ndarray,
@@ -602,7 +722,7 @@ class PreProcess(ABC):
         Check the feasibility of the input variables after pre-processing:
         - check individual's `valid_evaluation` flag
         - check constraints
-        
+
         Parameters:
         -----------
         xs: np.ndarray [n_candidate, n_input]
@@ -612,7 +732,7 @@ class PreProcess(ABC):
         user_pre_processing_func: Callable|None
             User-defined function to evaluate the individuals.
             If None, use external evaluation script.
-        
+
         Returns:
         --------
         feasibility_flags: List[bool] [n_candidate]
@@ -621,33 +741,39 @@ class PreProcess(ABC):
             List of IDs of the candidates.
         '''
         self.opt.log(f'Checking pre-processing feasibility of {xs.shape[0]} candidates...', level=2, prefix='  > ')
-        
+
         pre_processing_problem.calculation_folder = os.path.join(
             self.opt.dir_save, self.pre_process_folder)
-        
+
         db = Database(pre_processing_problem, database_type='total')
         for i in range(xs.shape[0]):
             indi = Individual(pre_processing_problem, x=xs[i], ID=i+1)
-            added, warning_info = db.add_individual(indi, print_warning_info=False)
+            # Duplicate and bound checks are disabled on purpose: the returned
+            # flags must line up one-to-one with the rows of `xs`, and
+            # `_adjust_x_values_by_valid_database` rejects a length mismatch.
+            added, warning_info = db.add_individual(
+                indi, check_duplication=False, check_bounds=False,
+                print_warning_info=False)
             if not added:
                 self.opt.log(warning_info, level=2, prefix='  - ')
-            
+
+
         db.evaluate_individuals(mp_evaluation=self.opt.mp_evaluation,
                                 user_func=user_pre_processing_func)
-        
+
         feasibility_flags = []
         ID_list = []
         for indi in db.individuals:
-            
+
             is_feasible = indi.valid_evaluation and indi.sum_violation <= 0.0
             feasibility_flags.append(is_feasible)
             ID_list.append(indi.ID)
-            
+
             if not is_feasible:
                 self.opt.log(f'Candidate #{indi.ID:2d} is infeasible.', level=2, prefix='  - ')
-            
+
         return feasibility_flags, ID_list
-    
+
     def _adjust_x_values_by_valid_database(self, xs: np.ndarray,
                     feasibility_flags: List[bool],
                     min_scaled_distance: float = 0.01,
@@ -655,7 +781,7 @@ class PreProcess(ABC):
                     ID_list: List[int]|None = None) -> np.ndarray:
         '''
         Adjust the input variables of candidates towards the valid individuals in `db_valid`.
-        
+
         Parameters:
         -----------
         xs: np.ndarray [n_candidate, n_input]
@@ -669,14 +795,14 @@ class PreProcess(ABC):
         ID_list: List[int]
             List of local IDs of the candidates.
             If None, use index of `xs` as the list of IDs.
-            
+
         Returns:
         --------
         xs_new: np.ndarray [n_candidate, n_input]
             Input variables of the candidates after adjustment.
         '''
-        self.opt.log(f'Adjusting candidates based on the valid database...', level=2, prefix='  > ')
-        
+        self.opt.log('Adjusting candidates based on the valid database...', level=2, prefix='  > ')
+
         xs_new = xs.copy()
 
         # Keep compatibility with list/ndarray inputs, but fail fast when
@@ -688,33 +814,33 @@ class PreProcess(ABC):
                 f"Length mismatch: feasibility_flags has {feasibility_flags_arr.size} "
                 f"entries, but xs has {n_candidate} candidates."
             )
-        
+
         index_infeasible = np.where(~feasibility_flags_arr)[0]
-        
+
         if ID_list is not None:
             ID_list_infeasible = [ID_list[i] for i in index_infeasible]
         else:
             ID_list_infeasible = None
-        
+
         xs_adjusting = xs_new[index_infeasible]
-        
+
         xs_adjusting = self._restrict_x_values_by_valid_database(xs_adjusting,
                                 min_scaled_distance=min_scaled_distance,
                                 max_scaled_distance=max_scaled_distance,
                                 ID_list=ID_list_infeasible)
-        
+
         xs_new[index_infeasible] = xs_adjusting
-        
+
         return xs_new
-        
+
 
 class PostProcess(ABC):
     '''
     Post-processing of `db_total` databases in each iteration.
-    
+
     The databases are accessed through the `OptBaseFramework` object, `opt`.
     The `db_total` databases are modified in place.
-    
+
     Parameters:
     -----------
     opt: OptBaseFramework

@@ -20,16 +20,27 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
     "numpy>=1.20",
     "scipy>=1.7",
     "scikit-learn>=1.0",
+    # Constraint strings are evaluated with numexpr.
+    "numexpr>=2.8",
+    # Latin hypercube sampling; `seed=` requires the 0.9 series.
+    "pydoe>=0.9.8",
+    # Database export to .xlsx.
+    "openpyxl>=3.0",
 ]
 
 [project.optional-dependencies]
 examples = ["matplotlib>=3.5"]
+# Surrogate models (aeroopt.utils.surrogate.Kriging wraps smt.surrogate_models.KPLS).
+surrogate = ["smt>=2.0"]
+docs = ["sphinx>=7.0", "furo>=2024.1.29", "myst-parser>=2.0"]
+tests = ["pytest>=7.0"]
 publish = ["build>=1.0", "twine>=4.0"]
 
 [project.urls]
@@ -47,3 +58,7 @@ version = { attr = "aeroopt.__version__" }
 
 [tool.setuptools.package-data]
 aeroopt = ["template_settings.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

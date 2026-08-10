@@ -2,6 +2,8 @@
 Utility functions for optimization.
 '''
 
+from __future__ import annotations
+
 from typing import List, Tuple
 
 import numpy as np
@@ -76,7 +78,7 @@ def binomial_crossover(x_target: np.ndarray, x_mutant: np.ndarray,
     '''
     Binomial crossover operator.
     At least one dimension always comes from the mutant vector.
-    
+
     Parameters:
     -----------
     x_target: np.ndarray
@@ -87,7 +89,7 @@ def binomial_crossover(x_target: np.ndarray, x_mutant: np.ndarray,
         Crossover rate.
     rng: np.random.Generator
         Random number generator.
-    
+
     Returns:
     --------
     trial: np.ndarray
@@ -190,6 +192,83 @@ def binary_tournament_selection(
     return selected
 
 
+def fill_candidates_by_sbx_and_mutation(
+        parents: Database,
+        db_candidate: Database,
+        population_size: int,
+        iteration: int,
+        cross_rate: float = 1.0,
+        pow_sbx: float = 20.0,
+        mut_rate: float = 1.0,
+        pow_poly: float = 20.0,
+        rng: np.random.Generator|None = None,
+        ) -> None:
+    '''
+    Fill `db_candidate` with SBX + polynomial-mutation offspring of `parents`.
+
+    This is the offspring step shared by NSGA-II, NSGA-III and RVEA; the three
+    algorithms differ only in how the `parents` pool was truncated.
+
+    Mating partners are drawn by binary tournament, then processed in pairs:
+    each pair produces two children by simulated binary crossover followed by
+    independent polynomial mutation. `db_candidate` is emptied first and never
+    grows past `population_size`; duplicated or out-of-bounds children are
+    rejected by `Database.add_individual`, so the result may be smaller.
+
+    Parameters:
+    -----------
+    parents: Database
+        Truncated parent pool to mate from.
+    db_candidate: Database
+        Candidate database; emptied and refilled in place.
+    population_size: int
+        Maximum number of offspring.
+    iteration: int
+        Current iteration, recorded as the offspring generation.
+    cross_rate, pow_sbx: float
+        Simulated binary crossover probability and distribution index.
+    mut_rate, pow_poly: float
+        Polynomial mutation probability and distribution index.
+    rng: np.random.Generator|None
+        Random generator; a fresh unseeded one is created when None.
+    '''
+    if rng is None:
+        rng = np.random.default_rng()
+
+    mating_population = binary_tournament_selection(
+        pool=parents, n_select=population_size, rng=rng)
+
+    db_candidate.empty_database()
+    problem = db_candidate.problem
+
+    n_pairs = int(np.ceil(population_size / 2))
+
+    for i in range(n_pairs):
+        parent_1 = mating_population[2 * i]
+        parent_2 = mating_population[min(2 * i + 1, population_size - 1)]
+
+        child_x1, child_x2 = sbx_crossover(
+            parent_1.x, parent_2.x, problem=problem,
+            cross_rate=cross_rate, pow_sbx=pow_sbx, rng=rng)
+
+        child_x1 = polynomial_mutation(
+            child_x1, problem=problem,
+            mut_rate=mut_rate, pow_poly=pow_poly, rng=rng)
+        child_x2 = polynomial_mutation(
+            child_x2, problem=problem,
+            mut_rate=mut_rate, pow_poly=pow_poly, rng=rng)
+
+        for child_x in (child_x1, child_x2):
+            if db_candidate.size >= population_size:
+                return
+            indi = Individual(problem=problem, x=child_x)
+            indi.source = 'evolutionary_operator'
+            indi.generation = iteration
+            db_candidate.add_individual(
+                indi, check_duplication=True, check_bounds=True,
+                deepcopy=False, print_warning_info=False)
+
+
 def perpendicular_distance(z: np.ndarray, direction_unit: np.ndarray) -> float:
     '''
     Perpendicular distance from objective vector z to a unit direction.
@@ -228,9 +307,9 @@ def sample_de_rand_1_indices(rng: np.random.Generator, n_pop: int,
     This is a core function of the DE algorithm.
 
     Donors are drawn from indices in `0 .. n_pop - 1` other than
-    `i_target`, so the target individual is excluded when possible. 
-    If fewer than three distinct indices remain, 
-    sampling is done with replacement. 
+    `i_target`, so the target individual is excluded when possible.
+    If fewer than three distinct indices remain,
+    sampling is done with replacement.
     If no candidate exists (`n_pop == 1`), returns `(0, 0, 0)`.
 
     Parameters:

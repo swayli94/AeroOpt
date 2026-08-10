@@ -1,3 +1,9 @@
 prune tests
 prune example
 prune old
+prune docs
+
+# Development guide and the agent skill: useful to anyone reading the source
+# distribution. Neither ends up in the wheel, which only ships `aeroopt*`.
+include AGENTS.md
+graft skills

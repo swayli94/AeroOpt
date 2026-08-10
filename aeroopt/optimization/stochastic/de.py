@@ -84,7 +84,7 @@ class DiffEvolution(Algorithm):
 class OptDE(OptBaseFramework):
     '''
     Optimization driver using differential evolution for offspring generation.
-    
+
     Parameters:
     -----------
     problem: Problem
@@ -123,21 +123,16 @@ class OptDE(OptBaseFramework):
             mp_evaluation=mp_evaluation,
             save_result_files=save_result_files,
             logging=logging,
+            rng=rng,
         )
         self.algorithm_settings = algorithm_settings
-        self.rng = rng
 
     def generate_candidate_individuals(self) -> None:
         '''
-        Generate candidate individuals from the total or valid database.
+        Generate one DE trial vector per parent in the truncated population.
         '''
-        if self.db_valid.size <= max(5, int(self.population_size * 0.5)):
-            _db = self.db_total
-        else:
-            _db = self.db_valid
-        
         DiffEvolution.generate_candidate_individuals(
-            db=_db,
+            db=self.select_population_database(),
             db_candidate=self.db_candidate,
             population_size=self.population_size,
             iteration=self.iteration,
@@ -145,9 +140,3 @@ class OptDE(OptBaseFramework):
             cross_rate=self.algorithm_settings.cross_rate,
             rng=self.rng,
         )
-        
-    def select_elite_from_valid(self) -> None:
-        '''
-        Select elite individuals from the valid database.
-        '''
-        DominanceBasedAlgorithm.select_elite_from_valid(self.db_valid, self.db_elite)
