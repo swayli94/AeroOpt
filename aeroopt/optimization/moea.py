@@ -7,69 +7,80 @@ Class for multi-objective evolutionary algorithms.
 - Approximation-guided algorithms, e.g., AGE-MOEA, etc.
 '''
 
+from __future__ import annotations
+
 import math
 import copy
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional, Tuple
+from typing import List, Optional, Tuple
 import numpy as np
-from aeroopt.core import Database
+from aeroopt.core import Database, SORT_BY_ID, SORT_BY_DOMINANCE_AND_CROWDING
 
 
 class Algorithm(ABC):
     '''
-    Base class for optimization algorithms.
-    
-    This class provides:
-    - Selection of elite individuals from the valid database (optional).
-    - Building a temporary parent database (optional).
-    - Generation of candidate individuals as child generation (mandatory).
+    Base class for the operator sets of optimization algorithms.
 
+    An `Algorithm` is a stateless collection of static methods, separate from
+    the `Opt*` driver that runs the optimization loop. Only offspring
+    generation is required; the two selection hooks have defaults that
+    subclasses override when they need something other than plain
+    rank-and-crowding truncation (as NSGA-III and RVEA do).
     '''
     @staticmethod
     def build_temporary_parent_database(
             db: Database,
-            population_size: int
+            population_size: int,
             ) -> Database:
         '''
-        Optional hook for building a temporary parent pool from a population database.
-        The `db` is deep copied.
-        
+        Build a temporary parent pool from a population database.
+
+        The default is the dominance-based truncation of
+        :meth:`DominanceBasedAlgorithm.build_temporary_parent_database`.
+
         Parameters:
         -----------
         db: Database
             Population database.
         population_size: int
             Size of the parent pool.
-            
+
         Returns:
         --------
         db_parent: Database
             Temporary parent pool.
         '''
-        ...
-    
+        return DominanceBasedAlgorithm.build_temporary_parent_database(
+            db, population_size)
+
     @staticmethod
     def environmental_selection_indices(
             db: Database,
             population_size: int,
             ) -> List[int]:
         '''
-        Optional hook for environmental selection on a merged pool.
-        Get indices of individuals to keep (length <= `population_size`).
-        
+        Environmental selection on a merged pool: indices of individuals to keep.
+
+        The default ranks `db` by dominance and crowding distance, then keeps
+        the best `population_size` of them.
+
         Parameters:
         -----------
         db: Database
             Database to select from.
         population_size: int
             Size of the parent pool.
-            
+
         Returns:
         --------
         index_selected: List[int]
             Indices of selected individuals, length at most `population_size`.
         '''
-        ...
+        if db.size <= 0:
+            return []
+        DominanceBasedAlgorithm.non_dominated_ranking(db)
+        DominanceBasedAlgorithm.assign_crowding_distance(db)
+        return DominanceBasedAlgorithm.select_parent_indices(db, population_size)
 
     @staticmethod
     @abstractmethod
@@ -77,17 +88,17 @@ class Algorithm(ABC):
             db: Database,
             db_candidate: Database,
             population_size: int,
-            iteration: int
+            iteration: int,
             ) -> None:
         '''
         Generate candidate individuals during the optimization,
         which are stored in `db_candidate` database before evaluation.
         The `db_candidate` database is generated from `db` database:
-        
+
         - update `db_candidate` in place.
         - create a temporary parent database by selection from `db`
         - evolution (crossover, mutation, etc.) of the parent database
-        
+
         Parameters:
         -----------
         db: Database
@@ -98,9 +109,7 @@ class Algorithm(ABC):
             Size of the parent pool.
         iteration: int
             Current iteration.
-        **kwargs: Any
-            Additional keyword arguments.
-            
+
         Returns:
         --------
         None
@@ -108,7 +117,7 @@ class Algorithm(ABC):
         ...
 
 
-class DominanceBasedAlgorithm(object):
+class DominanceBasedAlgorithm:
     '''
     Dominance-based (Pareto-based) multi-objective evolutionary algorithms,
     e.g., NSGA-II, NSGA-III, RVEA, NSDE, SPEA2, GDE3, etc.
@@ -154,15 +163,15 @@ class DominanceBasedAlgorithm(object):
     def non_dominated_ranking(db: Database) -> List[List[int]]:
         '''
         Non-dominated ranking on the database:
-        
+
         - suggested to apply to a valid database, i.e., `db.is_valid_database` is True.
         - update `indi.pareto_rank` in-place.
-        
+
         Parameters:
         -----------
         db: Database
             Database to rank.
-            
+
         Returns:
         --------
         index_fronts: List[List[int]]
@@ -171,7 +180,7 @@ class DominanceBasedAlgorithm(object):
         n = db.size
         if n == 0:
             return []
-        
+
         dominating_count = [0] * n
         dominated_set: List[List[int]] = [[] for _ in range(n)]
         index_fronts: List[List[int]] = [[]]
@@ -225,13 +234,13 @@ class DominanceBasedAlgorithm(object):
         problem = db.problem
         n_objective = problem.n_objective
         scaled_ys = db.get_unified_objectives(scale=True) # [nn, n_objective]
-        
+
         # Empty crowding distance
         for indi in db.individuals:
             indi.crowding_distance = 0.0
-        
+
         for front in db.index_pareto_fronts:
-            
+
             if len(front) == 0:
                 continue
 
@@ -322,7 +331,7 @@ class DominanceBasedAlgorithm(object):
         DominanceBasedAlgorithm.assign_crowding_distance(db)
         ids_before = [indi.ID for indi in db.individuals]
         index_fronts_before = copy.deepcopy(db.index_pareto_fronts)
-        db.sort_database(sort_type=0)
+        db.sort_database(sort_type=SORT_BY_DOMINANCE_AND_CROWDING)
         id_to_new_idx = {indi.ID: i for i, indi in enumerate(db.individuals)}
         db._index_pareto_fronts = [
             [id_to_new_idx[ids_before[i]] for i in front]
@@ -333,14 +342,14 @@ class DominanceBasedAlgorithm(object):
     def build_temporary_parent_database(db: Database, population_size: int) -> Database:
         '''
         Build a temporary parent pool from a population database.
-        
+
         - Non-dominated ranking (scaled objectives if ``is_valid_database``; otherwise
           constraint-aware ``Individual.check_dominance``, e.g. feasible vs infeasible)
         - Crowding distance assignment
         - Selection of parent pool
-        
+
         The input database is updated in-place (Pareto rank, crowding distance, front indices).
-        
+
         Parameters:
         -----------
         db: Database
@@ -348,7 +357,7 @@ class DominanceBasedAlgorithm(object):
             database with `is_valid_database=False` when no feasible solutions exist yet).
         population_size: int
             Size of the parent pool.
-            
+
         Returns:
         --------
         db_parent: Database
@@ -359,19 +368,19 @@ class DominanceBasedAlgorithm(object):
 
         if not db.updated_pareto_rank:
             DominanceBasedAlgorithm.non_dominated_ranking(db)
-        
+
         DominanceBasedAlgorithm.assign_crowding_distance(db)
-        
+
         if db.size <= population_size:
             return db
-        
+
         index_list = DominanceBasedAlgorithm.select_parent_indices(
             db, population_size)
-        
+
         db_parent = db.get_sub_database(index_list=index_list, deepcopy=True)
-        
+
         return db_parent
-    
+
     @staticmethod
     def select_elite_from_valid(db_valid: Database, db_elite: Database) -> None:
         '''
@@ -382,24 +391,24 @@ class DominanceBasedAlgorithm(object):
             return
 
         DominanceBasedAlgorithm.non_dominated_ranking(db_valid)
-        
+
         if len(db_valid.index_pareto_fronts) <= 0 or len(db_valid.index_pareto_fronts[0]) <= 0:
             db_elite.empty_database()
             return
-        
+
         DominanceBasedAlgorithm.assign_crowding_distance(db_valid)
 
-        db_elite.copy_from_database(db_valid, 
-                                index_list=db_valid.index_pareto_fronts[0], 
+        db_elite.copy_from_database(db_valid,
+                                index_list=db_valid.index_pareto_fronts[0],
                                 deepcopy=True)
-        db_elite.sort_database(sort_type=1)
-    
+        db_elite.sort_database(sort_type=SORT_BY_ID)
 
-class DecompositionBasedAlgorithm(object):
+
+class DecompositionBasedAlgorithm:
     '''
     Decomposition-based multi-objective evolutionary algorithms,
     e.g., MOEA/D, etc.
-    
+
     Note that other algorithms, such as NSGA-III, RVEA,
     also use this class for reference points generation.
     '''
@@ -426,14 +435,14 @@ class DecompositionBasedAlgorithm(object):
     def das_dennis_reference_points(n_objective: int, n_partitions: int) -> np.ndarray:
         '''
         Das-Dennis reference points on the (n_objective-1)-simplex.
-        
+
         Parameters:
         -----------
         n_objective: int
             Number of objectives.
         n_partitions: int
             Number of reference points (subproblems).
-            
+
         Returns:
         --------
         ref_points: np.ndarray [n_partitions, n_objective]
@@ -479,13 +488,13 @@ class DecompositionBasedAlgorithm(object):
         Two decomposition methods are supported:
 
         1. Tchebycheff:
-            
+
             Emphasizes the worst (most deviated) objective.
             This promotes balanced improvement across objectives and is commonly used
             for low-dimensional objective spaces.
 
         2. Penalty-based Boundary Intersection (PBI):
-        
+
             Decomposes the objective vector into:
             d1: distance along the reference direction (convergence).
             d2: perpendicular distance to the direction (diversity).

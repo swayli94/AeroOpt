@@ -2,6 +2,8 @@
 Utility functions for analysis.
 '''
 
+from __future__ import annotations
+
 import numpy as np
 from typing import overload
 from sklearn.cluster import KMeans
@@ -23,11 +25,11 @@ def func_potential(r: float, c: float) -> float:
 def func_potential(r: np.ndarray | float, c: float) -> np.ndarray | float:
     '''
     Calculate the potential function of force `f=c*r*exp(-c*r)`.
-    
+
     The potential equals 1 when `r` is 0,
     and equals 0 when `r` is infinity.
     A larger `c` makes the potential decrease faster.
-    
+
     Parameters:
     -----------
     r: np.ndarray|float
@@ -48,13 +50,13 @@ def calculate_potential_coefficient(
         Critical distance, means potential drop to `critical_potential` at `critical_distance`.
     critical_potential: float
         Desired critical potential.
-    
+
     Returns:
     --------
     c: float
         Coefficient `c` of potential.
     '''
-    
+
     if critical_distance <= 0.0:
         raise ValueError("critical_distance must be positive.")
 
@@ -86,14 +88,14 @@ def calculate_potential_coefficient(
 def idw_interpolation(d: np.ndarray, ys: np.ndarray) -> np.ndarray:
     '''
     Inverse distance weighted interpolation.
-    
+
     Parameters:
     -----------
     d: np.ndarray [n]
         Distances to the reference points.
     ys: np.ndarray [n, ny]
         Output values of the reference points.
-    
+
     Returns:
     --------
     y: np.ndarray [ny]
@@ -111,14 +113,14 @@ def idw_interpolation(d: np.ndarray, ys: np.ndarray) -> np.ndarray:
 def clustering_kmeans(vs: np.ndarray, n_clusters: int) -> np.ndarray:
     '''
     Cluster the scaled variables using k-means algorithm.
-    
+
     Parameters:
     -----------
     vs: np.ndarray [n, n_variable]
         Scaled variables.
     n_clusters: int
         Number of clusters.
-    
+
     Returns:
     --------
     cluster_labels: np.ndarray [n]
@@ -126,7 +128,7 @@ def clustering_kmeans(vs: np.ndarray, n_clusters: int) -> np.ndarray:
     '''
     # Standardize variables
     vs_std = (vs - np.mean(vs, axis=0)) / (np.std(vs, axis=0) + 1e-8)
-    
+
     kmeans = KMeans(n_clusters=n_clusters, random_state=0).fit(vs_std)
-    
+
     return np.array(kmeans.labels_)

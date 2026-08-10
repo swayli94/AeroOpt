@@ -9,6 +9,7 @@ https://en.wikipedia.org/wiki/Test_functions_for_optimization
 
 from __future__ import annotations
 
+import warnings
 from typing import Callable
 
 import numpy as np
@@ -111,9 +112,15 @@ def Gaussian(x: np.ndarray) -> float:
     return float(np.exp(-2.5 * np.dot(x, x)))
 
 
-# Backward compatibility alias
 def Gussian(x: np.ndarray) -> float:
-    """Alias for Gaussian (legacy typo)."""
+    """
+    Deprecated misspelling of :func:`Gaussian`, kept for backward compatibility.
+    """
+    warnings.warn(
+        'Gussian is a deprecated misspelling; use Gaussian instead.',
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return Gaussian(x)
 
 

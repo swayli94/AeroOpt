@@ -2,6 +2,8 @@
 Database definition.
 '''
 
+from __future__ import annotations
+
 import numpy as np
 import json
 import copy
@@ -10,9 +12,11 @@ from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
 
 from typing import List, Tuple, Callable
-from aeroopt.core.individual import Individual, ID_UNASSIGNED
+from aeroopt.core.individual import (
+    Individual, ID_UNASSIGNED, SORT_BY_DOMINANCE_AND_CROWDING, SORT_BY_CROWDING,
+)
 from aeroopt.core.problem import Problem
-from aeroopt.core.mpEvaluation import MultiProcessEvaluation
+from aeroopt.core.mp_evaluation import MultiProcessEvaluation
 
 
 def _json_numpy_default(value):
@@ -43,10 +47,10 @@ def _json_dump_numpy_safe(obj, fp, *args, **kwargs):
     return json.dump(obj, fp, *args, **kwargs)
 
 
-class Database(object):
+class Database:
     '''
     Basic database class.
-    
+
     Parameters:
     -----------
     problem: Problem
@@ -54,7 +58,7 @@ class Database(object):
     database_type: str
         Type of the database.
     '''
-    
+
     database_type_dict = {
         'default':      'not specified',
         'elite':        'elite database',
@@ -74,72 +78,74 @@ class Database(object):
         if database_type not in self.database_type_dict:
             raise ValueError(f'Invalid database type: {database_type}')
         self.database_type = database_type
-        
+
         self.individuals : List[Individual] = []
-        
+
         self._id_list : List[int] = [] # List of IDs in the order of individuals
         self._index_pareto_fronts : List[List[int]] = [] # Pareto fronts of individual indices
-        
+
         self._sorted : bool = False
         self._updated_crowding_distance : bool = False
         self._updated_pareto_rank : bool = False
         self._is_valid_database : bool = False
 
     #* Attributes
-    
+
     @property
     def size(self) -> int:
         '''
         Size of the database.
         '''
         return len(self.individuals)
-    
+
     @property
     def sorted(self) -> bool:
         '''
         Whether the database is sorted.
         '''
         return self._sorted
-    
+
     @property
     def is_valid_database(self) -> bool:
         '''
         Whether the database only contains valid individuals.
         '''
         return self._is_valid_database
-    
+
     @property
     def updated_crowding_distance(self) -> bool:
         '''
         Whether the crowding distance is updated.
         '''
         return self._updated_crowding_distance
-    
+
     @property
     def updated_pareto_rank(self) -> bool:
         '''
         Whether the Pareto rank is updated.
         '''
         return self._updated_pareto_rank
-    
+
     @property
     def index_pareto_fronts(self) -> List[List[int]]:
         '''
         Indices of the individuals in each Pareto front.
-        
+
         - `index_pareto_fronts[i][j]` is the index of the j-th individual in the i-th Pareto front.
         - `i=0` is the first (best) Pareto front.
         '''
         return self._index_pareto_fronts
-    
+
+    @property
     def critical_scaled_distance(self) -> float:
         '''
         Critical scaled distance for checking duplication of individuals.
         '''
         return self.problem.data_settings.critical_scaled_distance
-        
+
+
     #* Basic functions
-    
+
     def empty_database(self) -> None:
         '''
         Empty the database.
@@ -150,18 +156,18 @@ class Database(object):
         self._updated_crowding_distance = False
         self._updated_pareto_rank = False
         self._is_valid_database = False
-    
-    def copy_from_database(self, other: 'Database', 
-                        ID_list: List[int]|None = None, 
+
+    def copy_from_database(self, other: Database,
+                        ID_list: List[int]|None = None,
                         index_list: List[int]|None = None,
                         deepcopy: bool = True) -> None:
         '''
         Copy the database from another database:
-        
+
         - If `ID_list` or `index_list` is provided, the specified individuals are copied.
         - Otherwise, the entire database is copied.
         - The `database_type` is not changed.
-        
+
         Parameters:
         -----------
         other: Database
@@ -177,16 +183,19 @@ class Database(object):
         '''
         if other.problem is not self.problem:
             raise ValueError('Databases must share the same problem instance')
-        
+
         if ID_list is not None:
             self.individuals = [other.individuals[other.get_index_from_ID(id_)] for id_ in ID_list]
-        
+
         elif index_list is not None:
             self.individuals = [other.individuals[idx] for idx in index_list]
-            
+
         else:
-            self.individuals = other.individuals
-        
+            # `list(...)` is required: assigning `other.individuals` directly would
+            # make both databases share one list object, so adding or deleting an
+            # individual in one would silently change the other.
+            self.individuals = list(other.individuals)
+
         if deepcopy:
             self.individuals = [copy.deepcopy(indi) for indi in self.individuals]
 
@@ -195,17 +204,17 @@ class Database(object):
         self._updated_crowding_distance = other._updated_crowding_distance
         self._updated_pareto_rank = other._updated_pareto_rank
         self._is_valid_database = other._is_valid_database
-    
+
     def update_id_list(self) -> None:
         '''
         Update the list of IDs in the order of individuals.
         '''
         self._id_list = [indi.ID for indi in self.individuals]
-        
+
     def sort_database(self, sort_type: int = 0) -> None:
         '''
         Sort the database by a certain type.
-        
+
         Parameters:
         -----------
         sort_type: int
@@ -220,32 +229,33 @@ class Database(object):
         '''
         for indi in self.individuals:
             indi.sort_type = sort_type
-            
-        if sort_type == 0:
+
+        if sort_type == SORT_BY_DOMINANCE_AND_CROWDING:
             if not self.updated_pareto_rank or not self.updated_crowding_distance:
                 raise ValueError('Pareto rank and crowding distance must be updated before sorting (type=0)')
-        elif sort_type == 6:
+        elif sort_type == SORT_BY_CROWDING:
             if not self.updated_crowding_distance:
                 raise ValueError('Crowding distance must be updated before sorting (type=6)')
-            
+
+
         self.individuals.sort()
         self._sorted = True
         self.update_id_list()
-    
+
     #* Access data of individuals
-    
+
     def get_index_from_ID(self, ID: int) -> int:
         '''
         Get index of an individual from its ID.
         '''
         return self._id_list.index(ID)
-    
+
     def get_ID_from_index(self, index: int) -> int:
         '''
         Get ID of an individual from its index.
         '''
         return self.individuals[index].ID
-    
+
     def get_largest_ID(self) -> int:
         '''
         Get the largest ID in the database.
@@ -253,13 +263,13 @@ class Database(object):
         if self.size <= 0:
             return 0
         return int(np.max(self._id_list))
-    
+
     def get_xs(self, scale: bool = False,
-                ID_list: List[int]|None = None, 
+                ID_list: List[int]|None = None,
                 index_list: List[int]|None = None) -> np.ndarray:
         '''
         Get input variables of individuals in the database.
-        
+
         Parameters:
         -----------
         scale: bool
@@ -271,7 +281,7 @@ class Database(object):
         index_list: List[int]|None
             List of index of individuals to be selected.
             If None, all individuals will be selected.
-            
+
         Returns:
         --------
         xs: np.ndarray [n, n_input]
@@ -279,38 +289,30 @@ class Database(object):
         '''
         if self.size <= 0:
             return np.array([])
-    
+
         if ID_list is not None:
-            nn = len(ID_list)
-            xs = np.zeros([nn, self.problem.n_input])
-            for i in range(nn):
-                ii = self.get_index_from_ID(int(ID_list[i]))
-                xs[i,:] = self.individuals[ii].x
-
+            indices = [self.get_index_from_ID(int(ID)) for ID in ID_list]
         elif index_list is not None:
-            nn = len(index_list)
-            xs = np.zeros([nn, self.problem.n_input])
-            for i in range(nn):
-                xs[i,:] = self.individuals[index_list[i]].x
-
+            indices = list(index_list)
         else:
-            nn = self.size
-            xs = np.zeros([nn, self.problem.n_input])
-            for i in range(nn):
-                xs[i,:] = self.individuals[i].x
+            indices = range(self.size)
+
+        xs = np.zeros([len(indices), self.problem.n_input])
+        for i, index in enumerate(indices):
+            xs[i,:] = self.individuals[index].x
 
         if scale:
             xs = self.problem.scale_x(xs)
 
         return xs
-    
+
     def get_ys(self, scale: bool = False,
                 type_list: List[int]|None = None,
                 ID_list: List[int]|None = None,
                 index_list: List[int]|None = None) -> np.ndarray:
         '''
         Get output variables of individuals in the database.
-        
+
         Parameters:
         -----------
         scale: bool
@@ -325,48 +327,46 @@ class Database(object):
         index_list: List[int]
             List of index of individuals to be selected.
             If None, all individuals will be selected.
-            
+
         Returns:
         --------
         ys: np.ndarray [n, n_output]
             Output variables of individuals in the database.
+            Rows of individuals whose evaluation failed stay at zero, because
+            those individuals carry an empty output vector. A total database
+            normally contains such individuals, so callers must not assume
+            every row is a real result; check `Individual.is_evaluated`.
         '''
         if self.size <= 0:
             return np.array([])
-    
+
         if ID_list is not None:
-            nn = len(ID_list)
-            ys = np.zeros([nn, self.problem.n_output])
-            for i in range(nn):
-                ii = self.get_index_from_ID(int(ID_list[i]))
-                ys[i,:] = self.individuals[ii].y
-
+            indices = [self.get_index_from_ID(int(ID)) for ID in ID_list]
         elif index_list is not None:
-            nn = len(index_list)
-            ys = np.zeros([nn, self.problem.n_output])
-            for i in range(nn):
-                ys[i,:] = self.individuals[index_list[i]].y
-
+            indices = list(index_list)
         else:
-            nn = self.size
-            ys = np.zeros([nn, self.problem.n_output])
-            for i in range(nn):
-                ys[i,:] = self.individuals[i].y
-    
+            indices = range(self.size)
+
+        ys = np.zeros([len(indices), self.problem.n_output])
+        for i, index in enumerate(indices):
+            indi = self.individuals[index]
+            if indi.is_evaluated:
+                ys[i,:] = indi.y
+
         if scale:
             ys = self.problem.scale_y(ys)
-    
-        if not type_list is None:
+
+        if type_list is not None:
             ys = self.problem.get_output_by_type(ys, type_list)
-    
+
         return ys
-    
+
     def get_unified_objectives(self, scale: bool = False,
                 ID_list: List[int]|None = None,
                 index_list: List[int]|None = None) -> np.ndarray:
         '''
         Return objective matrix with unified minimization direction.
-        
+
         Parameters:
         -----------
         scale: bool
@@ -378,7 +378,7 @@ class Database(object):
         index_list: List[int]
             List of index of individuals to be selected.
             If None, all individuals will be selected.
-            
+
         Returns:
         --------
         ys: np.ndarray [nn, n_objective]
@@ -396,27 +396,27 @@ class Database(object):
             if out_type == -1:
                 ys[:, i_obj] = -ys[:, i_obj]
             i_obj += 1
-        
+
         return ys
-    
+
     #* Individual-level manipulation
-    
+
     def check_duplication(self, x: np.ndarray,
                     is_scaled_x: bool = False
                     ) -> Tuple[List[bool]|bool, List[int]|int]:
         '''
         Check if the individual is duplicated.
-        
+
         Note that the duplication is defined as the scaled distance between two individuals is less than a threshold, i.e.,
         `self.critical_scaled_distance`.
-        
+
         Parameters:
         -----------
         x: np.ndarray [n, n_input] or [n_input]
             Input variables of the individual.
         is_scaled_x: bool
             If True, the input x is already scaled.
-            
+
         Returns:
         --------
         is_duplicated: List[bool] or bool
@@ -433,30 +433,25 @@ class Database(object):
             n = 1
             is_duplicated = False
             closest_index = ID_UNASSIGNED
-        
+
         if self.size<=0:
             return is_duplicated, closest_index
-        
+
         if not is_scaled_x:
             x = self.problem.scale_x(x)
-        
+
         scaled_distance_matrix = self.problem.calculate_scaled_distance(
             x, self.get_xs(scale=True),
             is_scaled_x=True)
-        
-        min_dis = np.min(scaled_distance_matrix, axis=1) # [n]
-        closest_index = np.argmin(scaled_distance_matrix, axis=1,
-                                out=np.array([ID_UNASSIGNED]*n, dtype=int)) # [n]
-    
-        crit = self.critical_scaled_distance()
-        if is_multiple:
-            is_duplicated = [bool(dis < crit) for dis in min_dis]
-            closest_index = closest_index.tolist()
-        else:
-            is_duplicated = bool(min_dis[0] < crit)
-            closest_index = int(closest_index[0])
 
-        return is_duplicated, closest_index
+        min_distance = np.min(scaled_distance_matrix, axis=1) # [n]
+        index_closest = np.argmin(scaled_distance_matrix, axis=1) # [n]
+
+        crit = self.critical_scaled_distance
+        if is_multiple:
+            return [bool(d < crit) for d in min_distance], index_closest.tolist()
+
+        return bool(min_distance[0] < crit), int(index_closest[0])
 
     def add_individual(self, indi: Individual,
                     check_duplication: bool = True,
@@ -466,10 +461,10 @@ class Database(object):
                     ) -> Tuple[bool, str]:
         '''
         Add an individual to the database.
-        
+
         Only the individual ID may be modified,
         other attributes are not modified.
-        
+
         Parameters:
         -----------
         indi: Individual
@@ -482,7 +477,7 @@ class Database(object):
             If True, the individual is copied.
         print_warning_info: bool
             If True, print warning information of the individual.
-        
+
         Returns:
         --------
         added: bool
@@ -493,7 +488,7 @@ class Database(object):
         # Check problem
         if indi.problem != self.problem:
             raise ValueError('Individual problem does not match database problem')
-        
+
         # Check bounds
         if check_bounds:
             if not self.problem.check_bounds_x(indi.x):
@@ -501,10 +496,10 @@ class Database(object):
                 if print_warning_info:
                     print(f'>>> {text}')
                 return False, text
-        
+
         if deepcopy:
             indi = copy.deepcopy(indi)
-        
+
         # Check duplication
         if self.size > 0:
             is_duplicated, closest_index = self.check_duplication(indi.x)
@@ -513,7 +508,7 @@ class Database(object):
                 if print_warning_info:
                     print(f'>>> {text}')
                 return False, text
-        
+
         # Assign ID
         original_ID = indi.ID
         if isinstance(original_ID, int):
@@ -521,7 +516,7 @@ class Database(object):
                 indi.ID = self.get_largest_ID() + 1
         else:
             indi.ID = self.get_largest_ID() + 1
-            
+
         # Add individual to database
         self.individuals.append(indi)
         self._id_list.append(indi.ID)
@@ -529,14 +524,14 @@ class Database(object):
         self._updated_crowding_distance = False
         self._updated_pareto_rank = False
         self._is_valid_database = False
-            
+
         text = f'Added individual (ID={indi.ID:3d}, original ID={original_ID})'
         return True, text
-    
+
     def delete_individual(self, ID: int|None = None, index: int = -1) -> None:
         '''
         Delete an individual from the database.
-        
+
         Parameters:
         -----------
         ID: int|None
@@ -546,7 +541,7 @@ class Database(object):
         '''
         if self.size <= 0:
             raise Exception('Can not delete individual from empty database')
-        
+
         if ID is None and index == -1:
             self.individuals.pop()
             self._id_list.pop()
@@ -559,19 +554,24 @@ class Database(object):
         elif index>=0 and index<self.size:
             self.individuals.pop(index)
             self._id_list.pop(index)
-        
+
         else:
             raise Exception('ID or index not valid (size=%d)'%(self.size), ID, index)
-        
+
         self._sorted = False
         self._updated_crowding_distance = False
-    
-    def shrink_database(self, remaining_size: int, 
+        # Removing an individual can merge Pareto fronts, so the cached ranks and
+        # front indices no longer describe this database.
+        self._updated_pareto_rank = False
+        self._index_pareto_fronts = []
+
+
+    def shrink_database(self, remaining_size: int,
                 reserve_ratio: float = 0.3) -> None:
         '''
         Shrink database to `remaining_size` by deleting
         worst individuals (based on Pareto rank and crowding distance).
-        
+
         Parameters:
         -----------
         remaining_size: int
@@ -580,29 +580,31 @@ class Database(object):
             Reserve ratio for database shrinking, i.e.,
             ratio of individuals that are directly kept.
         '''
-        if self.size < remaining_size:
+        if self.size <= remaining_size:
             return
 
-        n_pop = self.size
-        n_direct = int(reserve_ratio * remaining_size)
+        n_direct = min(int(reserve_ratio * remaining_size), self.size)
         if n_direct > 0:
-            ii_sub = np.random.choice(n_pop, size=n_direct, replace=False)
-            id_direct = [self.individuals[i].ID for i in ii_sub]
+            index_reserved = np.random.choice(self.size, size=n_direct, replace=False)
+            id_reserved = {self.individuals[i].ID for i in index_reserved}
         else:
-            id_direct = []
+            id_reserved = set()
 
+        # Walk backwards from the worst individual, skipping the randomly
+        # reserved ones. `i` is bounded by the current size so a database whose
+        # tail is entirely reserved stops instead of indexing out of range.
         i = 1
-        while self.size > remaining_size:
+        while self.size > remaining_size and i <= self.size:
             _id = self.individuals[-i].ID
-            if _id in id_direct:
+            if _id in id_reserved:
                 i += 1
             else:
                 self.delete_individual(ID=_id)
-    
+
     def eliminate_invalid_individuals(self) -> None:
         '''
         Eliminate invalid individuals from the database.
-        
+
         Invalid individuals are defined as:
         - the individual has no valid evaluation.
         - the individual is out of bounds.
@@ -611,39 +613,38 @@ class Database(object):
         '''
         # Loop backwards to avoid index shifting issues
         for i in range(self.size-1, -1, -1):
-            
+
             indi = self.individuals[i]
-            
+
             if not indi.valid_evaluation:
                 self.delete_individual(index=i)
                 continue
-            
+
             if not self.problem.check_bounds_x(indi.x):
                 self.delete_individual(index=i)
                 continue
-            
-            if indi.y is not None:
-                indi.eval_constraints()
-            
+
+            indi.eval_constraints()
+
             if indi.sum_violation > 0.0:
                 self.delete_individual(index=i)
                 continue
-            
+
         self.update_id_list()
         self._sorted = False
         self._updated_crowding_distance = False
         self._updated_pareto_rank = False
         self._is_valid_database = True
-    
+
     #* Database-level manipulation
-    
+
     def get_sub_database(self,
-                ID_list: List[int]|None = None, 
+                ID_list: List[int]|None = None,
                 index_list: List[int]|None = None,
-                deepcopy: bool = True) -> 'Database':
+                deepcopy: bool = True) -> Database:
         '''
         Create a sub-database from the database.
-        
+
         Parameters:
         -----------
         ID_list: List[int]|None
@@ -655,7 +656,7 @@ class Database(object):
             If None, all individuals will be selected.
         deepcopy: bool
             If True, the individuals are copied.
-        
+
         Returns:
         --------
         sub_database: Database
@@ -668,28 +669,32 @@ class Database(object):
 
         if ID_list is not None:
             sub_database.individuals = [self.individuals[self.get_index_from_ID(id_)] for id_ in ID_list]
-        
-        if index_list is not None:
+
+        elif index_list is not None:
             sub_database.individuals = [self.individuals[idx] for idx in index_list]
-        
+
+        else:
+            # Documented behaviour: no selector means "all individuals".
+            sub_database.individuals = list(self.individuals)
+
         if deepcopy:
             sub_database.individuals = [copy.deepcopy(indi) for indi in sub_database.individuals]
-        
+
         sub_database.update_id_list()
 
         return sub_database
 
     def get_intersection_with_database(self,
-                        other: 'Database',
-                        deepcopy: bool = True) -> 'Database':
+                        other: Database,
+                        deepcopy: bool = True) -> Database:
         '''
         Get the intersection of the database with another database.
-        
+
         The intersection is defined as:
         - the `x` and `y` of individuals are the same in both databases.
         - the intersection is a new database.
         - the intersection database is picked from this database.
-        
+
         Parameters:
         -----------
         other: Database
@@ -701,37 +706,31 @@ class Database(object):
             raise ValueError('Databases must share the same problem instance')
 
         def _same_xy(a: Individual, b: Individual) -> bool:
-            if not np.array_equal(a.x, b.x):
-                return False
-            if a.y is None and b.y is None:
-                return True
-            if a.y is None or b.y is None:
-                return False
-            return np.array_equal(a.y, b.y)
+            return np.array_equal(a.x, b.x) and np.array_equal(a.y, b.y)
 
         intersection = Database(self.problem, database_type='intersection')
         for indi in self.individuals:
             if any(_same_xy(indi, o) for o in other.individuals):
                 intersection.individuals.append(indi)
-        
+
         if deepcopy:
             intersection.individuals = [copy.deepcopy(indi) for indi in intersection.individuals]
-        
+
         intersection.update_id_list()
 
         return intersection
 
     def merge_with_database(self,
-                        other: 'Database',
+                        other: Database,
                         deepcopy: bool = True,
                         log_func: Callable|None = None) -> None:
         '''
         Merge the database with another database.
-        
+
         The merge is defined as:
         - the individuals are merged into this database.
         - the duplicated individuals are not added.
-        
+
         Parameters:
         -----------
         other: Database
@@ -766,14 +765,14 @@ class Database(object):
         self._is_valid_database = False
 
     def create_database_of_sub_problem(self,
-                    sub_problem: Problem) -> 'Database':
+                    sub_problem: Problem) -> Database:
         '''
         Create a database of a sub-problem.
-        
+
         The sub-problem is defined as:
         - its names of `x` and `y` are subset of the current problem.
         - the other parameters can be different from the current problem.
-        
+
         Parameters:
         -----------
         sub_problem: Problem
@@ -782,42 +781,42 @@ class Database(object):
         # Check if the sub-problem is a subset of the current problem
         if not sub_problem.is_subset_of(self.problem):
             raise ValueError('Sub-problem is not a subset of the current problem')
-        
+
         # Create a new database for the sub-problem
         sub_database = Database(sub_problem, database_type='sub-database')
-        
+
         # Mapping of `x` and `y` to the sub-problem
         parent_in = self.problem.data_settings.name_input
         parent_out = self.problem.data_settings.name_output
         ix = [parent_in.index(n) for n in sub_problem.data_settings.name_input]
         iy = [parent_out.index(n) for n in sub_problem.data_settings.name_output]
-        
+
         # Add individuals to the sub-database
         # Pick components by parent-problem order, arranged as sub-problem order
         for indi in self.individuals:
-            
+
             indi = copy.deepcopy(indi)
-            
+
             indi.problem = sub_problem
             indi.name_problem = sub_problem.name
-            
+
             indi.x = indi.x[ix].copy()
             indi._scaled_x = sub_problem.scale_x(indi.x)
-            
-            if indi.y is not None:
+
+            if indi.is_evaluated:
                 indi.y = indi.y[iy].copy()
                 indi._scaled_y = sub_problem.scale_y(indi.y)
-                
+
             indi.eval_constraints()
-            
+
             sub_database.add_individual(indi, deepcopy=False, print_warning_info=False)
-            
-        sub_database.update_id_list()        
-        
+
+        sub_database.update_id_list()
+
         return sub_database
 
     #* Input and output
-    
+
     def output_database_json(self, fname: str):
         '''
         Output database to JSON file.
@@ -826,47 +825,53 @@ class Database(object):
             'database_type': self.database_type,
             'individuals': [indi.data for indi in self.individuals]
         }
-        
+
         with open(fname, 'w', encoding='utf-8') as f:
             _json_dump_numpy_safe(database_data, f, indent=4, ensure_ascii=False)
 
     def read_database_json(self, fname: str):
         '''
         Read database from JSON file.
+
+        Array-valued fields are restored as ndarrays; `y` always becomes an
+        ndarray (empty when the individual was never evaluated) so the rest of
+        the package can rely on that invariant.
         '''
-        with open(fname, 'r') as f:
+        with open(fname, encoding='utf-8') as f:
             database_data = json.load(f)
-            
+
         self.database_type = database_data['database_type']
         all_individuals = database_data['individuals']
-        
+
         self.individuals = []
         for indi_data in all_individuals:
-            
+
             indi = Individual(self.problem, x=np.array(indi_data['x']))
-            
+
             for key, value in indi_data.items():
-                
-                if key == 'y':
-                    if value is not None:
-                        value = np.array(value)
-                elif key == 'constraint_violations':
-                    if value is not None:
-                        value = np.array(value)
-                elif key == 'x':
+
+                if key == 'x':
                     # `x` is already set in the Individual constructor.
                     continue
-                    
-                indi.__setattr__(key, value)
-                
+                elif key == 'y':
+                    value = np.array([]) if value is None else np.asarray(value, dtype=float)
+                elif key == 'constraint_violations':
+                    if value is not None:
+                        value = np.asarray(value, dtype=float)
+
+                setattr(indi, key, value)
+
+            # `y` was replaced after construction, so drop the cached scaling.
+            indi._scaled_y = None
+
             self.individuals.append(indi)
-        
+
         self._id_list = [indi.ID for indi in self.individuals]
         self._sorted = False
         self._updated_crowding_distance = False
         self._updated_pareto_rank = False
         self._is_valid_database = False
-    
+
     @staticmethod
     def _format_sheet_left_align_and_auto_width(ws) -> None:
         '''
@@ -881,7 +886,7 @@ class Database(object):
                 width = len(cell_value)
                 if col_idx not in max_col_width or width > max_col_width[col_idx]:
                     max_col_width[col_idx] = width
-        
+
         for col_idx, width in max_col_width.items():
             col_letter = get_column_letter(col_idx)
             ws.column_dimensions[col_letter].width = min(max(width + 2, 10), 80)
@@ -889,22 +894,23 @@ class Database(object):
     def json_to_excel(self, json_fname: str, excel_fname: str, sheet_name: str = 'database') -> None:
         '''
         Convert database JSON file to an Excel file.
-        
+
         Excel format:
+
         - First row is header.
         - First column is `ID`.
         - Second column is `generation`.
         - Input/output variable components are expanded into independent columns,
           ordered by problem settings.
         '''
-        with open(json_fname, 'r', encoding='utf-8') as f:
+        with open(json_fname, encoding='utf-8') as f:
             database_data = json.load(f)
-        
+
         all_individuals = database_data.get('individuals', [])
-        
+
         input_names = list(self.problem.data_settings.name_input)
         output_names = list(self.problem.data_settings.name_output)
-        
+
         # Keep x/y in required order; remaining fields can be in arbitrary order.
         exclude_keys = {'ID', 'generation', 'x', 'y'}
         other_keys = []
@@ -912,47 +918,47 @@ class Database(object):
             for key in indi_data.keys():
                 if key not in exclude_keys and key not in other_keys:
                     other_keys.append(key)
-        
+
         header = ['ID', 'generation'] + input_names + output_names + other_keys
-        
+
         wb = Workbook()
         ws = wb.active
         if ws is None:
             raise ValueError('Failed to create worksheet')
-        
+
         ws.title = sheet_name
         ws.append(header)
-        
+
         n_input = len(input_names)
         n_output = len(output_names)
-        
+
         for indi_data in all_individuals:
             x = indi_data.get('x', [None] * n_input)
             y = indi_data.get('y', [None] * n_output)
-            
+
             if x is None:
                 x = [None] * n_input
             if y is None:
                 y = [None] * n_output
-            
+
             if len(x) < n_input:
                 x = list(x) + [None] * (n_input - len(x))
             if len(y) < n_output:
                 y = list(y) + [None] * (n_output - len(y))
-            
+
             row = [
                 indi_data.get('ID'),
                 indi_data.get('generation'),
             ] + list(x[:n_input]) + list(y[:n_output])
-            
+
             for key in other_keys:
                 value = indi_data.get(key)
                 if isinstance(value, list):
                     value = json.dumps(value, ensure_ascii=False)
                 row.append(value)
-            
+
             ws.append(row)
-        
+
         # Additional sheet: data_settings
         ws_data = wb.create_sheet(title='data_settings')
         ds = self.problem.data_settings
@@ -979,19 +985,20 @@ class Database(object):
         ws_problem.append(['n_constraint_functions', len(ps.constraint_functions)])
         ws_problem.append(['n_constraint', ps.n_constraint])
         ws_problem.append(['n_objective', ps.n_objective])
-        
+
+        self._format_sheet_left_align_and_auto_width(ws)
         self._format_sheet_left_align_and_auto_width(ws_data)
         self._format_sheet_left_align_and_auto_width(ws_problem)
-        
+
         wb.save(excel_fname)
 
     #* Sampling
-    
+
     def initialize_by_sampling(self, n: int) -> None:
         '''
         Initialize the database by Latin Hypercube Sampling.
         Sampling is performed on the input variables.
-        
+
         Parameters:
         -----------
         n: int
@@ -1006,30 +1013,30 @@ class Database(object):
                 deepcopy=True,
                 print_warning_info=False,
                 )
-        
+
     def sample_individual_from_database(self, n: int) -> List[Individual]:
         '''
         Sample individuals from the database.
         The individuals are not copied.
-        
+
         Parameters:
         -----------
         n: int
             Number of samples.
-            
+
         Returns:
         --------
         individuals: List[Individual]
             List of sampled individuals.
         '''
         if n > self.size:
-            raise ValueError('Number of samples > size of the database.')    
+            raise ValueError('Number of samples > size of the database.')
         index_list = np.random.choice(self.size, size=n, replace=False)
         individuals = [self.individuals[i] for i in index_list]
         return individuals
 
     #* Evaluation
-    
+
     def evaluate_individuals(self,
                     mp_evaluation: MultiProcessEvaluation|None = None,
                     user_func: Callable|None = None,
@@ -1038,7 +1045,7 @@ class Database(object):
         '''
         Evaluate the individuals (`y`) in the database,
         constraints are also evaluated.
-        
+
         Parameters:
         -----------
         mp_evaluation: MultiProcessEvaluation
@@ -1054,19 +1061,19 @@ class Database(object):
         prefix_folder_name: str
             Prefix of the folder name for external evaluation.
             If None, use individual's ID as the folder name.
-        
+
         Example:
         ---------
         >>> def user_func(x: np.ndarray, **kwargs) -> Tuple[bool, np.ndarray]:
         >>>     return True, np.array([np.sum(x**2)])
-        
+
         Returns:
         --------
         None
         '''
         if self.size <= 0:
             return None
-        
+
         if prefix_folder_name is None:
             prefix_folder_name = ''
 
@@ -1087,10 +1094,10 @@ class Database(object):
             if user_func is None:
                 raise ValueError('User-defined function is None')
             list_succeed, ys = user_func(xs)
-            
+
             if ys.shape != (self.size, self.problem.n_output):
                 raise ValueError(f'Invalid ys shape: {ys.shape} != [{self.size}, {self.problem.n_output}]')
-        
+
         elif mp_evaluation is not None:
             # Use mpEvaluation for both user_func and external_run modes.
             if callable(user_func):
@@ -1101,17 +1108,17 @@ class Database(object):
                 mp_evaluation.func = None
                 list_succeed, ys = mp_evaluation.evaluate(
                     xs, list_name=list_name, prob=self.problem)
-                
+
             if ys.shape != (self.size, self.problem.n_output):
                 raise ValueError(f'Invalid ys shape: {ys.shape} != [{self.size}, {self.problem.n_output}]')
-                
+
         else:
             # Use serial evaluation.
             ys = np.zeros((self.size, self.problem.n_output))
             list_succeed = [False for _ in range(self.size)]
-            
+
             for i, indi in enumerate(self.individuals):
-                
+
                 succeed = False
                 y = None
 
@@ -1133,7 +1140,7 @@ class Database(object):
 
         # Update individuals.
         for i, indi in enumerate(self.individuals):
-            
+
             y = ys[i, :]
 
             if list_succeed[i]:
@@ -1142,7 +1149,7 @@ class Database(object):
                 indi.valid_evaluation = True
                 indi.eval_constraints()
             else:
-                
+
                 indi.y = np.array([])
                 indi._scaled_y = np.array([])
                 indi.valid_evaluation = False

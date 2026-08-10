@@ -1,16 +1,16 @@
-# Tests for aeroopt.core.mpEvaluation
-# 使用内置 func 或 template_usr_func，不依赖外部 run.bat
+# Tests for aeroopt.core.mp_evaluation
+# 使用内置 func 或 template_user_func，不依赖外部 run.bat
 
 import numpy as np
 import pytest
 
-from aeroopt.core.mpEvaluation import MultiProcessEvaluation, template_usr_func
+from aeroopt.core.mp_evaluation import MultiProcessEvaluation, template_user_func
 
 
 class TestTemplateUsrFunc:
     def test_template_usr_func(self):
         x = np.array([1.0, 2.0, 3.0])
-        succeed, y = template_usr_func(x)
+        succeed, y = template_user_func(x)
         assert succeed is True
         np.testing.assert_array_almost_equal(y, [1 + 4 + 9])
 
@@ -27,7 +27,7 @@ class TestMultiProcessEvaluationWithFunc:
         np.testing.assert_array_almost_equal(ys, [[3.0], [7.0]])
 
     def test_serial_with_template_usr_func(self):
-        mp = MultiProcessEvaluation(3, 1, func=template_usr_func, n_process=None)
+        mp = MultiProcessEvaluation(3, 1, func=template_user_func, n_process=None)
         xs = np.array([[1.0, 0.0, 0.0]])
         list_succeed, ys = mp.evaluate(xs)
         assert list_succeed == [True]

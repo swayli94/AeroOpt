@@ -2,6 +2,8 @@
 Individual definition.
 '''
 
+from __future__ import annotations
+
 import numpy as np
 from typing import Tuple, Dict, Any
 from aeroopt.core.problem import Problem
@@ -11,11 +13,20 @@ from aeroopt.core.utils import compare_ndarray
 
 ID_UNASSIGNED = -999
 
+#* Sort types, see `SettingsProblem.sort_type_dict` and `Individual.__lt__`.
+SORT_BY_DOMINANCE_AND_CROWDING = 0
+SORT_BY_ID = 1
+SORT_BY_X = 2
+SORT_BY_Y = 3
+SORT_BY_OBJECTIVES = 4
+SORT_BY_DIVERSITY_OUTPUT = 5
+SORT_BY_CROWDING = 6
 
-class Individual(object):
+
+class Individual:
     '''
     Individual of a problem.
-    
+
     Parameters:
     -----------
     problem: Problem
@@ -31,55 +42,62 @@ class Individual(object):
     def __init__(self, problem: Problem, x: np.ndarray,
                     ID: int = ID_UNASSIGNED,
                     y: np.ndarray | None = None):
-        
+
         self.problem = problem
         self.name_problem = problem.name
-        
+
         self.x : np.ndarray = x
-        self.y : np.ndarray = np.array([]) if y is None else y
         self.ID : int = ID
 
         self.valid_evaluation : bool = True
         self.source : str = 'default'
-        self.sort_type : int = 0
-        
+        self.sort_type : int = SORT_BY_DOMINANCE_AND_CROWDING
+
+        #* Output; an empty array means "not evaluated yet".
+        if y is None:
+            self.y : np.ndarray = np.array([])
+        elif np.isscalar(y):
+            self.y = np.array([y], dtype=float)
+        else:
+            self.y = np.asarray(y).copy()
+
         #* Scaled data
         self._scaled_x : np.ndarray = self.problem.scale_x(self.x)
-        self._scaled_y : np.ndarray | None = None
-        
+        self._scaled_y : np.ndarray | None = (
+            None if self.y.size == 0 else self.problem.scale_y(self.y))
+
         #* Constraints
         self.constraint_violations : np.ndarray | None = None
         self.sum_violation : float = 0.0
-        
+
         #* Parameters for analysis
         self.group : int = 0
-        
+
         # Crowding distance: minimum distance to adjacent points
         self.crowding_distance : float = 1.0 # higher the better
-        
+
         # Crowding potential: potential induced by all other points
         self.crowding_potential : float = 0.0 # lower the better
-        
+
         #* Parameters for evolutionary algorithms
         self.generation : int = 0
         self.pareto_rank : int = 0 # lower the better
         self.mutation_rate : float = 0.9
         self.crossover_rate : float = 0.9
-        
-        if y is not None:
-            if isinstance(y, int) or isinstance(y,float):
-                self.y = np.array([y])
-            else:
-                self.y = y.copy()
-                
-            self._scaled_y = self.problem.scale_y(self.y)
+
+    @property
+    def is_evaluated(self) -> bool:
+        '''
+        Whether this individual carries an output vector, i.e. `y` is not empty.
+        '''
+        return self.y.size > 0
 
     def __repr__(self):
         return f"indi-{self.ID}"
-    
+
     def __str__(self):
         return f"Individual (ID={self.ID}) of problem {self.problem.name}"
-    
+
     def __lt__(self, other):
         '''
         User defined comparison operator [<].
@@ -88,56 +106,53 @@ class Individual(object):
         if not isinstance(other, Individual):
             return NotImplemented
 
-        if self.sort_type == 1:
+        if self.sort_type == SORT_BY_ID:
 
             return self.ID < other.ID
 
-        elif self.sort_type == 2:
+        if self.sort_type == SORT_BY_X:
 
             return compare_ndarray(self.x, other.x) == -1
 
-        elif self.sort_type == 3:
+        if self.sort_type == SORT_BY_Y:
 
             return compare_ndarray(self.y, other.y) == -1
 
-        elif self.sort_type == 4:
+        if self.sort_type == SORT_BY_OBJECTIVES:
 
             y1 = self.problem.get_output_by_type(self.y, [1, -1])
             y2 = self.problem.get_output_by_type(other.y, [1, -1])
             return compare_ndarray(y1, y2) == -1
 
-        elif self.sort_type == 5:
+        if self.sort_type == SORT_BY_DIVERSITY_OUTPUT:
 
             y1 = self.problem.get_output_by_type(self.y, [2])
             y2 = self.problem.get_output_by_type(other.y, [2])
             return compare_ndarray(y1, y2) == -1
 
-        elif self.sort_type == 6:
+        if self.sort_type == SORT_BY_CROWDING:
 
             if self.crowding_distance > other.crowding_distance:
                 return True
-            elif self.crowding_potential < other.crowding_potential:
+            if self.crowding_potential < other.crowding_potential:
                 return True
-            else:
-                return False 
+            return False
 
-        else:
-            #* When both are invalid individuals
-            #* Sort by constraint violation (smaller is better)
-            if self.sum_violation > 0.0 and other.sum_violation > 0.0:
-                return self.sum_violation < other.sum_violation
+        #* When both are invalid individuals
+        #* Sort by constraint violation (smaller is better)
+        if self.sum_violation > 0.0 and other.sum_violation > 0.0:
+            return self.sum_violation < other.sum_violation
 
-            #* Otherwise, sort by dominance and crowding distance
-            if self.pareto_rank < other.pareto_rank:
-                return True
-            elif self.pareto_rank > other.pareto_rank:
-                return False
-            elif self.crowding_distance > other.crowding_distance:
-                return True
-            elif self.crowding_potential < other.crowding_potential:
-                return True
-            else:
-                return False 
+        #* Otherwise, sort by dominance and crowding distance
+        if self.pareto_rank < other.pareto_rank:
+            return True
+        if self.pareto_rank > other.pareto_rank:
+            return False
+        if self.crowding_distance > other.crowding_distance:
+            return True
+        if self.crowding_potential < other.crowding_potential:
+            return True
+        return False
 
     @property
     def source2int(self) -> int:
@@ -145,7 +160,7 @@ class Individual(object):
         Return integer i representing the source of individual
         '''
         return SettingsData.data_source_dict[self.source]
-    
+
     @staticmethod
     def int2source(i: int) -> str:
         '''
@@ -163,10 +178,13 @@ class Individual(object):
         Objectives of this individual, ndarray [n_objective]
         '''
         obj = np.zeros(self.problem.n_objective)
+        if not self.is_evaluated:
+            return obj
+
         k = 0
         for i in range(self.problem.n_output):
             if abs(self.problem.output_type[i]) == 1:
-                obj[k] = self.y[i] if self.y is not None else 0.0
+                obj[k] = self.y[i]
                 k += 1
         return obj
 
@@ -176,21 +194,16 @@ class Individual(object):
         Data of this individual,
         ndarray is converted to list for JSON serialization.
         '''
-        if self.y is not None:
-            y = self.y.tolist()
-        else:
-            y = None
-            
         if self.constraint_violations is not None:
             constraint_violations = self.constraint_violations.tolist()
         else:
             constraint_violations = None
-        
+
         data = {
             'ID': self.ID,
             'name_problem': self.name_problem,
             'x': self.x.tolist(),
-            'y': y,
+            'y': self.y.tolist(),
             'valid_evaluation': self.valid_evaluation,
             'source': self.source,
             'sort_type': self.sort_type,
@@ -212,13 +225,15 @@ class Individual(object):
         Scaled input variables of this individual.
         '''
         return self._scaled_x
-    
+
     @property
     def scaled_y(self) -> np.ndarray:
         '''
         Scaled output variables of this individual.
+
+        Returns zeros when the individual has not been evaluated.
         '''
-        if self.y is None:
+        if not self.is_evaluated:
             return np.zeros(self.problem.n_output, dtype=float)
         if self._scaled_y is None:
             self._scaled_y = self.problem.scale_y(self.y)
@@ -228,13 +243,13 @@ class Individual(object):
                 use_another_problem: Problem | None = None) -> Tuple[float, np.ndarray]:
         '''
         Evaluate constraints of this individual.
-        
+
         Parameters
         -------------
         use_another_problem: Problem
             Another problem to evaluate constraints.
             If None, use the problem of this individual.
-        
+
         Returns
         -------------
         sum_violation: float
@@ -246,18 +261,18 @@ class Individual(object):
             self.sum_violation, self.constraint_violations = self.problem.eval_constraints(self.x, self.y)
         else:
             self.sum_violation, self.constraint_violations = use_another_problem.eval_constraints(self.x, self.y)
-            
+
         return self.sum_violation, self.constraint_violations
 
     def check_dominance(self, other) -> int:
         '''
         Check Pareto dominance.
-        
+
         Parameters
         -------------
         other: Individual
             Another individual to compare dominance.
-        
+
         Returns
         -------------
         i_dominance: int
@@ -269,22 +284,36 @@ class Individual(object):
         '''
         if not isinstance(other, Individual):
             raise ValueError(f'Must compare individuals, got {type(other)}')
-        
+
         if other.problem != self.problem:
             raise ValueError(f'Must compare individuals of the same problem, got {self.problem.name} and {other.problem.name}')
-        
+
+        #* An individual without an output vector has no objectives to compare.
+        #* A failed evaluation is always the worse option, and two failures are
+        #* mutually non-dominated. Checking this first keeps a total database
+        #* (which normally holds failed runs) safe to rank.
+        self_evaluated = self.is_evaluated and self.valid_evaluation
+        other_evaluated = other.is_evaluated and other.valid_evaluation
+
+        if not self_evaluated or not other_evaluated:
+            if self_evaluated:
+                return 1
+            if other_evaluated:
+                return -1
+            return 9
+
         if self.constraint_violations is None:
             self.eval_constraints()
         if other.constraint_violations is None:
             other.eval_constraints()
 
-        if self.sum_violation <= 0.0 and other.sum_violation > 0.0: 
+        if self.sum_violation <= 0.0 and other.sum_violation > 0.0:
             i_dominance = 1
 
-        elif self.sum_violation > 0.0 and other.sum_violation <= 0.0: 
+        elif self.sum_violation > 0.0 and other.sum_violation <= 0.0:
             i_dominance = -1
 
-        elif self.sum_violation > 0.0 and other.sum_violation > 0.0: 
+        elif self.sum_violation > 0.0 and other.sum_violation > 0.0:
             i_dominance = 9
 
         else:

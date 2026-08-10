@@ -1,24 +1,24 @@
 '''
 RVEA: Reference Vector Guided Evolutionary Algorithm
 
-In RVEA, a scalarization approach, termed angle penalized distance (APD), is adopted to 
+In RVEA, a scalarization approach, termed angle penalized distance (APD), is adopted to
 balance the convergence and diversity of the solutions in the high-dimensional objective space.
-Furthermore, an adaptation strategy is proposed to dynamically adjust the 
-reference vectors' distribution according to the objective functions' scales. 
+Furthermore, an adaptation strategy is proposed to dynamically adjust the
+reference vectors' distribution according to the objective functions' scales.
 
 Note that the APD is adapted based on the progress the algorithm has made.
 Thus, termination criteria such as n_gen or n_evals should be used.
 
 References:
-    
+
     Ran Cheng, Yaochu Jin, Markus Olhofer, and Bernhard Sendhoff.
     A reference vector guided evolutionary algorithm for many-objective optimization.
     IEEE Transactions on Evolutionary Computation, 20(5):773-791, 2016. doi:10.1109/TEVC.2016.2519378.
-    
+
     https://pymoo.org/algorithms/moo/rvea.html#nb-rvea
-    
+
     https://github.com/anyoptimization/pymoo/blob/main/pymoo/algorithms/moo/rvea.py
-    
+
 '''
 
 from __future__ import annotations
@@ -29,7 +29,6 @@ import numpy as np
 
 from aeroopt.core import (
     Problem,
-    Individual,
     Database,
     MultiProcessEvaluation,
 )
@@ -39,19 +38,15 @@ from aeroopt.optimization.moea import (
     DominanceBasedAlgorithm,
     DecompositionBasedAlgorithm,
 )
-from aeroopt.optimization.utils import (
-    binary_tournament_selection,
-    polynomial_mutation,
-    sbx_crossover,
-)
-from aeroopt.optimization.base import OptBaseFramework
+from aeroopt.optimization.utils import fill_candidates_by_sbx_and_mutation
+from aeroopt.optimization.base import OptGeneticFramework
 from aeroopt.optimization.settings import (
     SettingsRVEA,
     SettingsOptimization,
 )
 
 
-class RVEAApdState(object):
+class RVEAApdState:
     '''
     Mutable state for APD survival: running ideal, nadir, and adapted unit
     reference directions V (pymoo RVEA / APDSurvival).
@@ -97,7 +92,7 @@ class RVEAApdState(object):
         The purpose is to adjust the reference directions so that they are consistent
         with the anisotropic scaling of the objective space, preventing objectives with
         larger numerical ranges from dominating the decomposition.
-        
+
         The nadir point is the vector composed of the worst (maximum, for minimization problems)
         objective values among all solutions on the Pareto front.
 
@@ -159,7 +154,7 @@ class RVEA(Algorithm):
         '''
         Select up to one survivor per reference direction via APD (pymoo APDSurvival).
         Returns local indices into `db.individuals`.
-        
+
         Parameters
         ----------
         db: Database
@@ -177,7 +172,7 @@ class RVEA(Algorithm):
             In the early stages of the algorithm, the penalty is small, allowing for more convergence.
             In the later stages of the algorithm, the penalty is large, allowing for more diversity.
             Therefore, a larger `alpha` value will lead to more convergence.
-            
+
         Returns
         -------
         indices: List[int]
@@ -197,7 +192,7 @@ class RVEA(Algorithm):
             return list(range(db.size))
 
         ys = db.get_unified_objectives(scale=True)
-        
+
         if state is None:
             raise ValueError("State is required for APD environmental selection.")
 
@@ -222,7 +217,7 @@ class RVEA(Algorithm):
         n_gen = max(int(iteration), 1)
         M = float(n_obj) if n_obj > 2 else 1.0
         progress = min(1.0, n_gen / float(n_max_gen))
-        
+
         '''
         `progress` is the progress of the algorithm, normalized to the number of iterations.
         `alpha` is the APD penalty parameter that controls the trade-off between convergence and diversity.
@@ -306,49 +301,52 @@ class RVEA(Algorithm):
             pow_sbx: float = 20.0,
             mut_rate: float = 1.0,
             pow_poly: float = 20.0,
+            rng: np.random.Generator|None = None,
             ) -> None:
+        '''
+        Truncate `db` to a parent pool by APD survival, then fill `db_candidate`
+        with SBX + polynomial-mutation offspring.
+        '''
         if db.size <= 0:
             raise RuntimeError("No individuals available for RVEA evolution.")
+
+        if rng is None:
+            rng = np.random.default_rng()
 
         temp_parents = RVEA.build_temporary_parent_database(
             db, population_size, state, iteration, max_iterations,
             alpha)
-        mating_population = binary_tournament_selection(
-            pool=temp_parents, n_select=population_size)
 
-        db_candidate.empty_database()
-        n_pairs = int(np.ceil(population_size / 2))
-        for i in range(n_pairs):
-            i1 = 2 * i
-            i2 = min(2 * i + 1, population_size - 1)
-            p1 = mating_population[i1]
-            p2 = mating_population[i2]
-
-            x1, x2 = sbx_crossover(
-                p1.x, p2.x, problem=db_candidate.problem,
-                cross_rate=cross_rate, pow_sbx=pow_sbx)
-
-            x1 = polynomial_mutation(
-                x1, problem=db_candidate.problem,
-                mut_rate=mut_rate, pow_poly=pow_poly)
-            x2 = polynomial_mutation(
-                x2, problem=db_candidate.problem,
-                mut_rate=mut_rate, pow_poly=pow_poly)
-
-            for x_child in (x1, x2):
-                if db_candidate.size >= population_size:
-                    break
-                indi = Individual(problem=db_candidate.problem, x=x_child)
-                indi.source = 'evolutionary_operator'
-                indi.generation = iteration
-                db_candidate.add_individual(
-                    indi, check_duplication=True, check_bounds=True,
-                    deepcopy=False, print_warning_info=False)
+        fill_candidates_by_sbx_and_mutation(
+            parents=temp_parents,
+            db_candidate=db_candidate,
+            population_size=population_size,
+            iteration=iteration,
+            cross_rate=cross_rate, pow_sbx=pow_sbx,
+            mut_rate=mut_rate, pow_poly=pow_poly,
+            rng=rng)
 
 
-class OptRVEA(OptBaseFramework):
+class OptRVEA(OptGeneticFramework):
     '''
     RVEA optimization (APD truncation for the mating pool, reference-vector adaptation).
+
+    Parameters:
+    -----------
+    problem: Problem
+        Problem for optimization.
+    optimization_settings: SettingsOptimization
+        Settings of the optimization.
+    algorithm_settings: SettingsRVEA
+        RVEA-specific settings.
+    user_func: Callable
+        User-defined function to evaluate the individuals.
+        If None, use external evaluation script.
+    mp_evaluation: MultiProcessEvaluation
+        Multi-process evaluation object defined in the entrance of the entire program.
+        If None, use serial evaluation.
+    rng: np.random.Generator
+        Optional NumPy random generator.
     '''
     def __init__(self,
             problem: Problem,
@@ -359,19 +357,21 @@ class OptRVEA(OptBaseFramework):
             mp_evaluation: MultiProcessEvaluation|None = None,
             save_result_files: bool = True,
             logging: bool = True,
+            rng: np.random.Generator|None = None,
             ):
 
         super().__init__(
             problem=problem,
             optimization_settings=optimization_settings,
+            algorithm_settings=algorithm_settings,
             user_func=user_func,
             user_func_supports_parallel=user_func_supports_parallel,
             mp_evaluation=mp_evaluation,
             save_result_files=save_result_files,
             logging=logging,
+            rng=rng,
         )
 
-        self.algorithm_settings = algorithm_settings
         n_obj = self.problem.n_objective
         p = self.algorithm_settings.n_partitions
         if p is None:
@@ -390,17 +390,11 @@ class OptRVEA(OptBaseFramework):
         return None
 
     def generate_candidate_individuals(self) -> None:
-        mute_rate = (
-            self.algorithm_settings.mut_rate
-            / max(self.problem.n_input, 1))
-
-        if self.db_valid.size <= max(5, int(self.population_size * 0.5)):
-            _db = self.db_total
-        else:
-            _db = self.db_valid
-
+        '''
+        Generate RVEA candidates for the current iteration.
+        '''
         RVEA.generate_candidate_individuals(
-            db=_db,
+            db=self.select_population_database(),
             db_candidate=self.db_candidate,
             population_size=self.population_size,
             iteration=self.iteration,
@@ -409,10 +403,7 @@ class OptRVEA(OptBaseFramework):
             alpha=self.algorithm_settings.alpha,
             cross_rate=self.algorithm_settings.cross_rate,
             pow_sbx=self.algorithm_settings.pow_sbx,
-            mut_rate=mute_rate,
+            mut_rate=self.mut_rate_per_variable,
             pow_poly=self.algorithm_settings.pow_poly,
+            rng=self.rng,
         )
-
-    def select_elite_from_valid(self) -> None:
-        DominanceBasedAlgorithm.select_elite_from_valid(
-            self.db_valid, self.db_elite)

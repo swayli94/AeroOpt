@@ -6,7 +6,6 @@ import pytest
 from aeroopt.core import Individual, Problem, SettingsData, SettingsProblem
 from aeroopt.optimization import SettingsDE, SettingsOptimization
 from aeroopt.optimization.hybrid.sao import SAO
-from aeroopt.utils.surrogate import SurrogateModel
 
 from tests.test_sbo import _InnerOptShell, _StubSurrogate
 

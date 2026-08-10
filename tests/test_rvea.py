@@ -8,7 +8,6 @@ import pytest
 from aeroopt.core import Database, Individual, Problem, SettingsData, SettingsProblem
 from aeroopt.optimization import (
     DominanceBasedAlgorithm,
-    NSGAIII,
     OptRVEA,
     RVEA,
     RVEAApdState,

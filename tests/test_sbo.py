@@ -6,10 +6,10 @@ import pytest
 
 from aeroopt.core import Database, Individual, Problem, SettingsData, SettingsProblem
 from aeroopt.optimization import SettingsOptimization
+from aeroopt.optimization.hybrid.base import surrogate_user_func
 from aeroopt.optimization.hybrid.sbo import (
     PostProcessSBO,
     SBO,
-    _surrogate_user_func,
 )
 from aeroopt.utils.surrogate import SurrogateModel
 
@@ -84,7 +84,6 @@ class _InnerOptShell:
 
     def main(self):
         self.initialize()
-        rng = np.random.default_rng(42)
         for i in range(self._n_individuals):
             xv = np.array([0.15 + 0.1 * i])
             yv = np.array([0.25 + 0.05 * i])
@@ -103,7 +102,7 @@ class _InnerOptShell:
 def test_surrogate_user_func_returns_parallel_batch(problem):
     sur = _StubSurrogate(problem)
     xs = np.array([[0.2], [0.3]])
-    ok, ys = _surrogate_user_func(xs, surrogate=sur)
+    ok, ys = surrogate_user_func(xs, surrogate=sur)
     assert ok == [True, True]
     assert ys.shape == (2, problem.n_output)
     np.testing.assert_allclose(ys[:, 0], [0.2, 0.3])
@@ -173,7 +172,7 @@ def test_sbo_raises_when_surrogate_outputs_not_in_problem(
     surrogate = _StubSurrogate(problem)
     surrogate.problem = SimpleNamespace(name_output=["nonexistent_output"])
     inner = _InnerOptShell(problem)
-    with pytest.raises(Exception, match="Surrogate model problem error"):
+    with pytest.raises(ValueError, match="Surrogate outputs must be a subset"):
         SBO(
             problem,
             optimization_settings,
