@@ -31,7 +31,6 @@ extensions = [
     'sphinx.ext.todo',
 ]
 
-templates_path = ['_templates']
 exclude_patterns = []
 
 # The docstrings use `'''...'''` with NumPy-style "Parameters / Returns"

@@ -1,0 +1,8 @@
+# Keeps this directory in version control.
+#
+# `html_static_path = ['_static']` in conf.py points here. Git does not track
+# empty directories, so without this file a fresh clone (as Read the Docs
+# makes) has no `_static/` and Sphinx warns -- which fails the build, because
+# `.readthedocs.yaml` sets `fail_on_warning: true`.
+#
+# Put custom CSS, a logo, or other static assets here.
