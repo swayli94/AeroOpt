@@ -1,6 +1,35 @@
 Changelog
 =========
 
+0.2.3
+-----
+
+Two ways a study could lose work it had already paid for: an evaluated
+generation discarded by a late error, and an archive destroyed by an
+interrupted write.
+
+Fixed
+^^^^^
+
+* **A batch evaluator's success flags were never checked.** With
+  ``user_func_supports_parallel=True`` the shape of ``ys`` was validated but the
+  length of ``list_succeed`` was not, although it is read one flag per
+  individual *after* the batch has been evaluated. A short list surfaced there
+  as an ``IndexError`` with half the candidates updated and the whole
+  generation's solver time already spent; a bare ``True`` (instead of one flag
+  per design) as a ``TypeError``; a long one was silently truncated. All three
+  are now reported before any result is recorded.
+* **An interrupted write could destroy the archive.**
+  ``Database.output_database_json`` opened its destination directly, truncating
+  the previous file before the new content existed. A driver rewrites
+  ``db-total.json`` on every iteration of a run that may last days, so a process
+  killed at the wrong instant --- a scheduler's wall-clock limit, a full disk,
+  an interrupt --- left the study's only permanent record, and the file the
+  documented restart procedure copies, truncated or empty. The database is now
+  written beside its destination, flushed to disk and moved into place with
+  ``os.replace``, which is atomic; an interrupted write leaves neither a damaged
+  database nor a stray temporary file.
+
 0.2.2
 -----
 

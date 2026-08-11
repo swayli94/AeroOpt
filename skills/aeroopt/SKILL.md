@@ -225,7 +225,9 @@ if __name__ == '__main__':
 ```
 
 Set `user_func_supports_parallel=True` instead when the evaluator itself takes
-the whole `xs` matrix and returns `(list_succeed, ys)`.
+the whole `xs` matrix and returns `(list_succeed, ys)` — `ys` with one row per
+design and `list_succeed` with one flag per design, **failures included**. Both
+are checked before any result is recorded.
 
 ## Hung and failing solvers
 

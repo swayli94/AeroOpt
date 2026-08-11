@@ -1223,6 +1223,133 @@ class TestIndividualCopyRegressions:
         assert copy.deepcopy(db.individuals[0]).problem is prob
 
 
+class TestBatchEvaluatorContractRegressions:
+    """
+    `user_func_supports_parallel=True` checked the shape of `ys` but not the
+    length of `list_succeed`, which is read one flag per individual *after* the
+    batch has been evaluated. A wrong length surfaced there as an `IndexError`
+    with half the candidates updated and the generation's solver time spent.
+    """
+
+    def _db(self, problem, n=3):
+        db = Database(problem, database_type='population')
+        for i, x in enumerate(np.linspace(0.1, 0.9, n)):
+            db.add_individual(Individual(problem, x=np.array([x]), ID=i + 1),
+                              print_warning_info=False)
+        return db
+
+    def test_too_few_flags_are_rejected_before_anything_is_recorded(self, problem):
+        db = self._db(problem)
+
+        def user_func(xs):
+            return [True, True], np.zeros((xs.shape[0], problem.n_output))
+
+        with pytest.raises(ValueError, match='list_succeed length'):
+            db.evaluate_individuals(user_func=user_func,
+                                    user_func_supports_parallel=True)
+
+        assert not any(indi.is_evaluated for indi in db.individuals), (
+            'individuals were half updated before the error')
+
+    def test_too_many_flags_are_rejected(self, problem):
+        db = self._db(problem)
+
+        def user_func(xs):
+            return [True] * 5, np.zeros((xs.shape[0], problem.n_output))
+
+        with pytest.raises(ValueError, match='list_succeed length'):
+            db.evaluate_individuals(user_func=user_func,
+                                    user_func_supports_parallel=True)
+
+    def test_a_single_flag_is_rejected_with_a_readable_message(self, problem):
+        """`return True, ys` instead of `return [True]*n, ys`."""
+        db = self._db(problem)
+
+        def user_func(xs):
+            return True, np.zeros((xs.shape[0], problem.n_output))
+
+        with pytest.raises(ValueError, match='not a sequence'):
+            db.evaluate_individuals(user_func=user_func,
+                                    user_func_supports_parallel=True)
+
+    def test_a_correct_batch_evaluator_still_works(self, problem):
+        db = self._db(problem)
+
+        def user_func(xs):
+            return np.array([True, False, True]), xs[:, :1] * 2.0
+
+        db.evaluate_individuals(user_func=user_func,
+                                user_func_supports_parallel=True)
+
+        assert [indi.valid_evaluation for indi in db.individuals] == [True, False, True]
+        np.testing.assert_allclose(db.individuals[0].y, [0.2])
+
+
+class TestDatabaseWriteRegressions:
+    """
+    `output_database_json` opened its destination directly, truncating the
+    previous file before the new content existed. A driver rewrites
+    `db-total.json` every iteration of a run that may last days, so a process
+    killed at the wrong instant left the study's only permanent record --- the
+    file the documented restart procedure copies --- truncated or empty.
+    """
+
+    def _db(self, problem):
+        db = Database(problem, database_type='total')
+        db.add_individual(Individual(problem, x=np.array([0.25]), y=np.array([0.5])),
+                          print_warning_info=False)
+        return db
+
+    def test_an_interrupted_write_leaves_the_previous_file_intact(self, problem,
+                                                                  tmp_path, monkeypatch):
+        import aeroopt.core.database as database_module
+
+        db = self._db(problem)
+        fname = tmp_path / 'db-total.json'
+        db.output_database_json(str(fname))
+        original = fname.read_text(encoding='utf-8')
+
+        def _die_midway(obj, fp, *args, **kwargs):
+            fp.write('{"database_type": "total", "individ')
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(database_module, '_json_dump_numpy_safe', _die_midway)
+
+        with pytest.raises(KeyboardInterrupt):
+            db.output_database_json(str(fname))
+
+        assert fname.read_text(encoding='utf-8') == original, 'the archive was damaged'
+
+        leftovers = [p.name for p in tmp_path.iterdir() if p.name != 'db-total.json']
+        assert leftovers == [], f'temporary files left behind: {leftovers}'
+
+    def test_the_written_database_still_reads_back(self, problem, tmp_path):
+        db = self._db(problem)
+        fname = tmp_path / 'db-total.json'
+        db.output_database_json(str(fname))
+
+        reloaded = Database(problem, database_type='total')
+        reloaded.read_database_json(str(fname))
+
+        assert reloaded.size == db.size
+        np.testing.assert_allclose(reloaded.individuals[0].x, db.individuals[0].x)
+
+    def test_overwriting_an_existing_database_replaces_it(self, problem, tmp_path):
+        db = self._db(problem)
+        fname = tmp_path / 'db-total.json'
+        db.output_database_json(str(fname))
+
+        db.add_individual(Individual(problem, x=np.array([0.75]), y=np.array([0.9])),
+                          print_warning_info=False)
+        db.output_database_json(str(fname))
+
+        reloaded = Database(problem, database_type='total')
+        reloaded.read_database_json(str(fname))
+
+        assert reloaded.size == 2
+        assert [p.name for p in tmp_path.iterdir()] == ['db-total.json']
+
+
 class TestAnalyzeDatabaseRegressions:
     def test_handles_individuals_with_failed_evaluations(self, problem):
         """An empty `y` used to raise a broadcast error while building arrays."""

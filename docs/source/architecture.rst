@@ -202,7 +202,7 @@ modes:
    * - Mode
      - Behaviour
    * - ``user_func_supports_parallel=True``
-     - ``user_func(xs)`` is called once with the whole matrix. Use this when the evaluator vectorizes or manages its own parallelism (as a surrogate does).
+     - ``user_func(xs)`` is called once with the whole matrix and returns ``(list_succeed, ys)``, one flag and one row per design, failures included; both are validated before any result is recorded. Use this when the evaluator vectorizes or manages its own parallelism (as a surrogate does).
    * - ``mp_evaluation`` set
      - Each design is submitted to a ``ProcessPoolExecutor``, either as a call to ``user_func`` or as an external run.
    * - neither

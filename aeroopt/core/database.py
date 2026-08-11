@@ -7,6 +7,8 @@ from __future__ import annotations
 import numpy as np
 import json
 import copy
+import os
+import tempfile
 from openpyxl import Workbook
 from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
@@ -45,6 +47,31 @@ def _json_dump_numpy_safe(obj, fp, *args, **kwargs):
             return user_default(value)
         kwargs['default'] = _combined_default
     return json.dump(obj, fp, *args, **kwargs)
+
+
+def _check_success_flags(list_succeed, n_individual: int) -> List[bool]:
+    """
+    Validate the success flags a batch evaluator returned.
+
+    The flags are read one per individual well after the batch has been
+    evaluated, so a wrong length surfaces there as an `IndexError` with half the
+    candidates updated and the whole generation's solver time already spent.
+    Checking here reports it before any result is recorded.
+    """
+    try:
+        flags = [bool(flag) for flag in list_succeed]
+
+    except TypeError:
+        raise ValueError(
+            f'Invalid list_succeed: {type(list_succeed).__name__} is not a sequence '
+            f'of {n_individual} flags. A parallel evaluator returns '
+            f'`(list_succeed, ys)` with one flag per design.') from None
+
+    if len(flags) != n_individual:
+        raise ValueError(
+            f'Invalid list_succeed length: {len(flags)} != {n_individual}')
+
+    return flags
 
 
 class Database:
@@ -824,14 +851,41 @@ class Database:
     def output_database_json(self, fname: str):
         '''
         Output database to JSON file.
+
+        The file is written beside its destination and then moved into place.
+        Opening the destination directly would truncate it before the new
+        content exists, and a driver rewrites `db-total.json` on *every*
+        iteration of a run that may last days: a process killed at the wrong
+        instant --- a scheduler's wall-clock limit, a full disk, an interrupt ---
+        would leave the study's only permanent record truncated. `os.replace` is
+        atomic, so a reader sees either the previous database or the new one.
         '''
         database_data = {
             'database_type': self.database_type,
             'individuals': [indi.data for indi in self.individuals]
         }
 
-        with open(fname, 'w', encoding='utf-8') as f:
-            _json_dump_numpy_safe(database_data, f, indent=4, ensure_ascii=False)
+        folder = os.path.dirname(os.path.abspath(fname))
+
+        # The temporary file must share a filesystem with the destination for
+        # `os.replace` to be atomic, so it goes in the same folder.
+        handle, fname_temporary = tempfile.mkstemp(
+            dir=folder, prefix=os.path.basename(fname) + '.', suffix='.tmp')
+
+        try:
+            with os.fdopen(handle, 'w', encoding='utf-8') as f:
+                _json_dump_numpy_safe(database_data, f, indent=4, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+
+            os.replace(fname_temporary, fname)
+
+        except BaseException:
+            # Also on KeyboardInterrupt: the point is that an interrupted write
+            # leaves neither a damaged database nor a stray temporary file.
+            if os.path.exists(fname_temporary):
+                os.remove(fname_temporary)
+            raise
 
     def read_database_json(self, fname: str):
         '''
@@ -1101,6 +1155,8 @@ class Database:
 
             if ys.shape != (self.size, self.problem.n_output):
                 raise ValueError(f'Invalid ys shape: {ys.shape} != [{self.size}, {self.problem.n_output}]')
+
+            list_succeed = _check_success_flags(list_succeed, self.size)
 
         elif mp_evaluation is not None:
             # Use mpEvaluation for both user_func and external_run modes.

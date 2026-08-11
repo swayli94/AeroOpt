@@ -13,6 +13,8 @@
 | `Cannot build parent database from an empty database` | Every initial design failed or was infeasible. Check the evaluator and constraints. |
 | `Surrogate outputs must be a subset of the problem outputs` | The surrogate problem's `name_output` contains a name absent from the main problem. |
 | `Invalid ys shape: ...` | The evaluator was handed the whole `xs` matrix: `user_func_supports_parallel=True` but the function takes one design. |
+| `Invalid list_succeed length: ...` | A parallel evaluator returned fewer or more flags than designs — return one per row of `xs`, failures included. |
+| `Invalid list_succeed: bool is not a sequence ...` | `return True, ys` instead of `return [True] * len(xs), ys`. |
 | `Individual problem does not match database problem` | Two different `Problem` objects; they compare equal only when their problem-settings names match. |
 | Silent `RuntimeWarning` in numexpr | A constraint divides by a variable that can be zero. |
 | `StaleCaseFolderError: Case folder ... a different design` | `Calculation/` holds cases from an earlier study (a new study numbers from 1 again). Clear or move it, set `"resume": true`, or set `problem.rerun_stale_cases = True`. |
