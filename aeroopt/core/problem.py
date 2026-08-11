@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import platform
 import shutil
+import signal
 import subprocess
 
 import numpy as np
@@ -60,6 +61,19 @@ class Problem:
         :class:`StaleCaseFolderError`, so leftovers from a previous study are
         reported instead of quietly overwritten. True re-prepares and re-runs
         the folder, discarding the old result.
+    solver_timeout: float, or None
+        Seconds one external run may take, used whenever
+        :meth:`external_run` is called without an explicit `timeout`. None (the
+        default) waits indefinitely. This is the only way to bound a serial
+        external study; :class:`~aeroopt.core.mp_evaluation.MultiProcessEvaluation`
+        passes its own `timeout` and overrides this.
+    timeout_marker_fname: str
+        Name of the file written into a case folder whose run was killed on
+        timeout, so the case is re-run instead of skipped next time.
+    kill_grace_period: float
+        Seconds a timed-out run is given to shut down on `SIGTERM` before it is
+        killed outright. Raise it when the run script needs time to release a
+        licence or flush a restart file.
     '''
     def __init__(self, data_settings: SettingsData, problem_settings: SettingsProblem):
 
@@ -73,6 +87,10 @@ class Problem:
         self.runfiles_folder : str = 'Runfiles'
 
         self.rerun_stale_cases : bool = False
+
+        self.solver_timeout : float|None = None
+        self.timeout_marker_fname : str = 'timeout.marker'
+        self.kill_grace_period : float = 10.0
 
     def __eq__(self, other) -> bool:
         '''
@@ -199,6 +217,13 @@ class Problem:
         move) `calculation_folder` before starting a new study, or set
         `rerun_stale_cases` to re-prepare such folders automatically.
 
+        A run that exceeds `timeout` is killed --- the run script *and*
+        everything it spawned, see :meth:`_terminate_process_tree` --- and
+        reported as a failed evaluation. The output file is deliberately not
+        read: a solver that wrote a result and then hung would otherwise have
+        that intermediate result recorded as a success. A marker file is left
+        behind so the case is re-run rather than skipped on the next attempt.
+
         Parameters
         -----------------
         folder_name: str
@@ -211,8 +236,9 @@ class Problem:
             base name of the external run script, without extension:
             `run.bat` on Windows, `run.sh` elsewhere.
         timeout: float, or None
-            seconds to wait for the solver. If None, wait indefinitely.
-            A run that exceeds the timeout is reported as failed.
+            seconds to wait for the solver. If None, `solver_timeout` is used,
+            which itself defaults to waiting indefinitely. A run that exceeds
+            the timeout has its process tree killed and is reported as failed.
 
         Returns
         ----------------
@@ -233,11 +259,17 @@ class Problem:
             file written with the values of `x`, one `name value` pair per line.
         output_fname: str
             file the solver is expected to write, one `name value` pair per line.
+        timeout_marker_fname: str
+            empty file left behind when the run was killed on timeout.
         '''
+
+        if timeout is None:
+            timeout = self.solver_timeout
 
         folder = os.path.join(self.calculation_folder, folder_name)
         out_name = os.path.join(folder, self.output_fname)
         in_name = os.path.join(folder, self.input_fname)
+        marker_name = os.path.join(folder, self.timeout_marker_fname)
 
         os.makedirs(folder, exist_ok=True)
 
@@ -268,45 +300,39 @@ class Problem:
                     print('    warning: [external_run] stale case folder re-run: %s'
                           % (folder_name))
 
-                # The stale output belongs to the previous design. Deleting it
-                # means a failed re-run is reported as a failure instead of
-                # silently returning the old `y`.
-                if os.path.exists(out_name):
-                    os.remove(out_name)
+                is_prepared = False
+
+            elif os.path.exists(marker_name):
+
+                # The previous attempt at this same design was killed on timeout.
+                # Whatever it left behind describes a run that never finished, so
+                # the case is run again rather than skipped.
+                if information:
+                    print('    warning: [external_run] previous run timed out, re-running: %s'
+                          % (folder_name))
 
                 is_prepared = False
 
         if not is_prepared:
 
-            # `dirs_exist_ok` copies the *contents* of the run-files folder.
-            # A plain `cp -r Runfiles folder/` would nest it as a subdirectory,
-            # because the case folder was just created above.
-            if os.path.isdir(self.runfiles_folder):
-                shutil.copytree(self.runfiles_folder, folder, dirs_exist_ok=True)
-            elif information:
-                print('    warning: [external_run] run-files folder not found: %s'
-                      % (self.runfiles_folder))
-
-            self.write_input(in_name, x)
+            self._prepare_case_folder(folder, in_name, out_name, marker_name,
+                                      x, information)
 
             if platform.system() == 'Windows':
                 command = [os.path.join('.', bash_name + '.bat')]
             else:
                 command = ['sh', os.path.join('.', bash_name + '.sh')]
 
-            try:
-                subprocess.run(command, cwd=folder, timeout=timeout, check=False,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            timed_out = self._run_solver(command, folder, timeout,
+                                         information, folder_name)
 
-            except subprocess.TimeoutExpired:
-                if information:
-                    print('    warning: [external_run] timeout after %.1f s: %s'
-                          % (float(timeout or 0.0), folder_name))
+            if timed_out:
+                # Not `read_output`: a solver that wrote a result and then hung
+                # would have that intermediate value recorded as a success.
+                with open(marker_name, 'w', encoding='utf-8') as f:
+                    f.write('killed after %.1f s\n' % (float(timeout or 0.0)))
 
-            except OSError as e:
-                if information:
-                    print('    warning: [external_run] failed to start %s: %s'
-                          % (command, e))
+                return False, np.ones(self.n_output)
 
         #* Process results
         succeed, y = self.read_output(out_name)
@@ -315,6 +341,135 @@ class Problem:
             print('    warning: [external_run] failed: %s'%(folder_name))
 
         return succeed, y
+
+    def _prepare_case_folder(self, folder: str, in_name: str, out_name: str,
+                             marker_name: str, x: np.ndarray,
+                             information: bool) -> None:
+        '''
+        Copy the run files into the case folder and write the input file.
+
+        Anything left by a previous attempt at this folder is removed first: an
+        output file or a timeout marker describes a run that is about to be
+        replaced, and keeping either would let a re-run that produces nothing
+        return the earlier result.
+        '''
+        # `dirs_exist_ok` copies the *contents* of the run-files folder.
+        # A plain `cp -r Runfiles folder/` would nest it as a subdirectory,
+        # because the case folder was just created above.
+        if os.path.isdir(self.runfiles_folder):
+            shutil.copytree(self.runfiles_folder, folder, dirs_exist_ok=True)
+        elif information:
+            print('    warning: [external_run] run-files folder not found: %s'
+                  % (self.runfiles_folder))
+
+        for fname in (out_name, marker_name):
+            if os.path.exists(fname):
+                os.remove(fname)
+
+        self.write_input(in_name, x)
+
+    def _run_solver(self, command: List[str], folder: str,
+                    timeout: float | None, information: bool,
+                    folder_name: str) -> bool:
+        '''
+        Run the external command in `folder` and wait for at most `timeout`.
+
+        Returns
+        -------------
+        timed_out: bool
+            True when the run exceeded `timeout` and was killed. A command that
+            could not be started at all counts as finished, not as timed out:
+            it leaves no output, so it is reported as an ordinary failure.
+        '''
+        if platform.system() == 'Windows':
+            # A new process group is what `taskkill /T` walks to reach the
+            # solver the run script started.
+            popen_kwargs = {'creationflags': getattr(
+                subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)}
+        else:
+            # `start_new_session` puts the script in its own process group, so
+            # one signal reaches the script *and* everything it spawned.
+            popen_kwargs = {'start_new_session': True}
+
+        try:
+            process = subprocess.Popen(
+                command, cwd=folder,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                **popen_kwargs)
+
+        except OSError as e:
+            if information:
+                print('    warning: [external_run] failed to start %s: %s'
+                      % (command, e))
+            return False
+
+        try:
+            process.wait(timeout=timeout)
+            return False
+
+        except subprocess.TimeoutExpired:
+            if information:
+                print('    warning: [external_run] timeout after %.1f s, killing '
+                      'the process tree: %s' % (float(timeout or 0.0), folder_name))
+
+            self._terminate_process_tree(process, information)
+            return True
+
+    def _terminate_process_tree(self, process: subprocess.Popen,
+                                information: bool) -> None:
+        '''
+        Kill the run script and every process it started.
+
+        `Popen.kill` signals the direct child only. A run script that launched
+        the real solver as a child would leave it orphaned but running, holding
+        licences and CPU for as long as it likes --- which is exactly what the
+        timeout was set to prevent. The whole process group is signalled
+        instead: `SIGTERM` first, so a run script that traps it can release its
+        licence, then `SIGKILL` for whatever ignored it.
+
+        A grandchild that put itself in a new session (a batch-queue submission,
+        for instance) escapes this, as it escapes any process-tree kill.
+        '''
+        if platform.system() == 'Windows':
+            # `/T` kills the tree, `/F` forcefully; there is no SIGTERM
+            # equivalent to try first.
+            subprocess.run(['taskkill', '/F', '/T', '/PID', str(process.pid)],
+                           check=False, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
+        else:
+            # `start_new_session=True` made the child a session leader, so its
+            # process-group ID equals its PID.
+            if self._signal_process_group(process.pid, signal.SIGTERM):
+
+                try:
+                    process.wait(timeout=self.kill_grace_period)
+                except subprocess.TimeoutExpired:
+                    pass
+
+                # The script may be gone while a grandchild still holds the
+                # group; SIGKILL cannot be caught or ignored.
+                self._signal_process_group(process.pid, signal.SIGKILL)
+
+        try:
+            process.wait(timeout=self.kill_grace_period)
+        except subprocess.TimeoutExpired:
+            if information:
+                print('    warning: [external_run] process %d survived the kill'
+                      % (process.pid))
+
+    @staticmethod
+    def _signal_process_group(pgid: int, sig: int) -> bool:
+        '''
+        Send `sig` to a whole process group.
+
+        Returns False when the group is already gone, so the caller can stop.
+        '''
+        try:
+            os.killpg(pgid, sig)
+        except (ProcessLookupError, PermissionError):
+            return False
+
+        return True
 
     def _input_file_matches(self, fname: str,
                             x: np.ndarray) -> Tuple[bool, np.ndarray | None]:
@@ -691,6 +846,11 @@ class Problem:
     def check_bounds_y(self, y: np.ndarray) -> bool:
         '''
         Check if the output vector is within the bounds.
+
+        Nothing in the framework requires this to hold: `output_low` and
+        `output_upp` are the scaling range, not a limit, and `scale_y` maps an
+        out-of-range `y` outside `[0, 1]` without complaint. This is a report
+        for the caller, not a validity test.
         '''
         return bool(
             np.all(y >= self.data_settings.output_low) and np.all(y <= self.data_settings.output_upp)
@@ -747,17 +907,32 @@ class Problem:
 
     def apply_bounds_y(self, y: np.ndarray) -> bool:
         '''
-        Apply the bounds to the output vector.
+        Clip the output vector to the output bounds (in place).
+
+        **Never call this on an evaluated result.** Nothing in the framework
+        does, deliberately. `output_low` / `output_upp` are the scaling range,
+        not a limit, so an out-of-range `y` is merely scaled outside `[0, 1]` ---
+        it costs MOEA/D and RVEA some resolution and nothing else. Clipping it
+        instead collapses distinct designs onto one objective value, which is a
+        fabricated tie in dominance and a stored `y` the solver never returned;
+        no downstream check can detect either. A result whose value makes the
+        design unacceptable belongs in a failed evaluation (`succeed=False`) or
+        in a constraint `g(x, y) <= 0`.
+
+        Use it only on values the caller *constructed* rather than measured: a
+        surrogate extrapolating to a physically impossible value before it feeds
+        a criterion that assumes `[0, 1]`, an output sampled or interpolated as
+        a design condition, or a plot on fixed axes.
 
         Parameters
         -------------
         y: ndarray [n_output] or [:, n_output]
-            output vector
+            output vector, modified in place.
 
         Returns
         -------------
         within_bounds: bool
-            whether the output vector is within the bounds
+            whether the output vector was within the bounds before clipping
         '''
         mask_upper = y > self.data_settings.output_upp
         mask_lower = y < self.data_settings.output_low

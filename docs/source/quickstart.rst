@@ -243,6 +243,49 @@ Running evaluations in parallel
        opt = OptNSGAII(..., mp_evaluation=mp)
        opt.main()
 
+.. _solver-timeouts:
+
+When a solver hangs or fails
+----------------------------
+
+``timeout`` bounds **one** external evaluation:
+
+.. code-block:: python
+
+   mp = MultiProcessEvaluation(..., n_process=8, timeout=3600)   # 1 h per design
+
+   problem.solver_timeout = 3600      # same limit without a parallel evaluator
+
+When it expires, the run script *and* every process it started are killed ---
+``SIGTERM`` first, so a script that traps it can release its licence, then
+``SIGKILL`` (``taskkill /F /T`` on Windows). Give the graceful step more room
+with ``problem.kill_grace_period``. A grandchild that puts itself in a new
+session, such as a job submitted to a batch queue, escapes this: the run script
+should wait for such a job itself, so that killing the script kills the wait.
+
+The design is recorded as a **failed evaluation**; the case's ``output.txt`` is
+deliberately not read, because a solver that wrote a result and then hung would
+otherwise have that intermediate value stored as if it were valid. A marker file
+is left in the case folder so that the design is re-run, not skipped, if the
+study is restarted.
+
+The timeout does **not** bound the batch: eight processes working through
+thirty-two designs take four times one evaluation, by design. A hard limit on
+the whole batch is opt-in and separate:
+
+.. code-block:: python
+
+   mp = MultiProcessEvaluation(..., timeout=3600, batch_timeout=6*3600)
+
+When *it* expires the designs still running are recorded as failures and the
+study continues --- their solvers are left to finish, since a process pool
+cannot interrupt them.
+
+An evaluation that raises --- a bridge script rejecting its input, a mesher
+throwing --- is recorded as a failed design too, in serial and in parallel
+alike, as is a worker that dies outright. The study keeps going; the failure
+stays in ``db_total`` as evidence that the region is troublesome.
+
 The whole generation is submitted to a process pool, so wall-clock time per
 iteration approaches the cost of the slowest single evaluation.
 

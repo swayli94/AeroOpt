@@ -1,6 +1,111 @@
 Changelog
 =========
 
+0.2.2
+-----
+
+Robustness of the evaluation loop: a hung or failing solver no longer takes the
+study with it, and evaluations are no longer spent on designs the archive
+already holds.
+
+Fixed
+^^^^^
+
+* **A timed-out solver kept running.** ``subprocess.run(timeout=...)`` signals
+  the direct child only, so the timeout killed the run *script* and left the
+  solver the script had started orphaned (re-parented to init) but running ---
+  still holding its licence and its cores, which is exactly what the timeout
+  was set to prevent. The script is now started in its own process group and
+  the whole group is signalled: ``SIGTERM`` first, so a run script that traps it
+  can release the licence, then ``SIGKILL`` for whatever ignored it
+  (``taskkill /F /T`` on Windows). ``Problem.kill_grace_period`` sets how long
+  ``SIGTERM`` is given. A grandchild that puts *itself* in a new session, such
+  as a batch-queue submission, still escapes, as it escapes any tree kill.
+* **A timed-out run could be recorded as a success.** After the timeout the case
+  went on to read ``output.txt``, so a solver that wrote a result and then hung
+  had that intermediate value stored as a valid evaluation. A timeout is now
+  reported as a failed evaluation without reading the file.
+* **A timed-out case was never retried.** Its input file was in place, so the
+  next attempt treated it as prepared and skipped it, leaving the design
+  permanently failed. The timeout leaves a marker file
+  (``Problem.timeout_marker_fname``) that makes the case run again; preparing a
+  case clears any previous output and marker, so a re-run that produces nothing
+  cannot return the earlier result.
+* **A serial external study could not be bounded at all.** ``timeout`` lived on
+  ``MultiProcessEvaluation``, so a study evaluating without one called
+  ``external_run`` with no limit and a single hung solver hung the run forever.
+  ``Problem.solver_timeout`` is the default for every external run;
+  ``MultiProcessEvaluation`` still overrides it with its own ``timeout``.
+* **A per-evaluation timeout killed the whole study.**
+  ``MultiProcessEvaluation`` passed ``timeout`` to ``as_completed``, i.e. used
+  it as the batch limit as well. With more designs than processes the batch
+  legitimately takes several times one evaluation, so the setting that protects
+  against a hung solver reliably raised ``TimeoutError`` instead --- after the
+  pool had finished all the work, because leaving the ``with`` block waits. The
+  batch limit is now a separate, opt-in ``batch_timeout``, and when it fires the
+  unfinished designs are recorded as failures instead of raising.
+* **Evaluations were spent on designs already in the archive.** ``db_candidate``
+  only ever checked for duplicates within itself; the check against everything
+  evaluated so far happened at the merge, after the solver had run, and the
+  duplicate was then discarded. On a discrete-grid problem that was 60 of 479
+  evaluations --- 12.5% of the budget buying nothing. Candidates are now
+  screened against ``db_total`` before evaluation, by the same
+  ``critical_scaled_distance`` that would reject them later.
+* **Resuming re-ran the initial sample.** ``main()`` called
+  ``initialize_population`` after ``resume``, so a resumed study spent another
+  ``population_size`` evaluations on a fresh design of experiments --- with a
+  fixed ``seed``, on the *identical* sample it had already paid for. A study
+  that resumed a database now takes no initial sample unless
+  ``force_initial_population_size`` says otherwise.
+* **Generations were silently short.** An operator whose offspring duplicated
+  one already drawn simply lost that slot, so a converged population --- or any
+  coarse precision grid --- shrank the generation below ``population_size``.
+  DE, NRBO, MOEA/D and the shared SBX/mutation fill now re-draw up to
+  ``MAX_CANDIDATE_ATTEMPTS`` times. The first draw is unchanged, so a run in
+  which nothing is rejected consumes exactly the same random numbers as before.
+* **Copying an individual cloned the whole problem.** ``copy.deepcopy`` recursed
+  into ``Individual.problem``, so rebuilding ``db_valid`` from ``db_total``
+  cloned the settings arrays and constraint callables once per individual, every
+  iteration --- 242 ``Problem`` objects for a 242-design archive. It also froze
+  each copy against the problem as it was, and raised outright when a constraint
+  callable held something uncopyable. ``Individual.__deepcopy__`` now shares the
+  problem and copies only the design.
+* **A pruning post-process took effect an iteration late.** ``db_valid`` is
+  derived from ``db_total``, but it was derived *before* the hook the
+  documentation offers for pruning the archive, so a pruned design was still
+  selected as elite and written to that iteration's summary.
+  ``derive_valid_from_total`` now runs after the hook as well.
+* **A raising evaluation killed the whole study.** An exception inside a worker
+  came back out of ``Future.result()``; a solver bridge that rejects its input
+  took the run down with it, although the same exception was recorded as a
+  failed design when ``Database.evaluate_individuals`` called the function
+  itself. Every path now records it as a failure. A worker that dies without
+  returning (killed process, ``BrokenProcessPool``) is handled the same way.
+  ``StaleCaseFolderError`` and a missing folder name or problem object are still
+  raised: they are setup mistakes that would fail identically for every design.
+* ``Database.add_individual`` reported the *position* of the duplicate it found
+  as if it were an ID, sending anyone reading the log to the wrong design.
+
+Added
+^^^^^
+
+* :meth:`~aeroopt.optimization.base.OptBaseFramework.derive_valid_from_total`,
+  the one place ``db_valid`` is rebuilt.
+* ``Problem.solver_timeout``, ``Problem.kill_grace_period``,
+  ``Problem.timeout_marker_fname`` and
+  ``MultiProcessEvaluation.batch_timeout``.
+
+Documentation
+^^^^^^^^^^^^^
+
+* A strategy for output bounds, ``output_precision`` and clipping
+  (:ref:`output-bounds-strategy`). It records which algorithms the scaling
+  actually reaches --- MOEA/D and RVEA decisively, dominance, crowding and
+  NSGA-III not at all --- how to pick the bounds, what quantizing ``y`` before
+  scaling does to every comparison, and why
+  :meth:`~aeroopt.core.problem.Problem.apply_bounds_y` must not be used on an
+  evaluated result.
+
 0.2.1
 -----
 

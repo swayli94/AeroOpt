@@ -38,23 +38,38 @@ These cause most failures. Read them before writing any aeroopt code.
 3. **Constraints are `g(x, y) <= 0`.** To express `y1 >= 40`, write
    `"40.0 - y1"`. Both inputs and outputs may appear.
 
-4. **`output_low` / `output_upp` are not constraints.** They are the scaling
-   bounds used for every dominance, crowding and decomposition computation. Set
-   them to the plausible range of each output. Bounds far too wide compress the
-   real variation and weaken diversity preservation.
+4. **`output_low` / `output_upp` are a scale, not a limit.** Their only consumer
+   is `scale_y`, an affine map that does **not** clip — an out-of-range `y` is
+   scaled outside `[0, 1]` and nothing raises. Dominance, crowding and NSGA-III
+   all renormalize and barely care, but **MOEA/D and RVEA do**: their weight
+   vectors and reference-vector angles assume the objectives span comparable
+   fractions of `[0, 1]`. Set fixed bounds covering the plausible range with a
+   small margin; never widen them "to be safe".
 
-5. **`user_func` returns `(succeed, y)`**, not `y`. Return `False` to record a
+5. **Never clip an evaluated `y`.** `apply_bounds_y` clips in place and the
+   framework never calls it — clipping collapses distinct designs onto one
+   objective value (a fake tie in dominance) and stores a number the solver
+   never returned. Use it only on values the code *constructed*: a surrogate
+   extrapolation, a sampled output, a fixed-axis plot. An unacceptable result is
+   `succeed=False` or a constraint, never a clip.
+
+6. **`output_precision` quantizes `y` before scaling**, so it sets the noise
+   floor every comparison sees, not just what is stored. Leave it `0.0` unless
+   the solver's own noise justifies a grid — and keep it well below the bound
+   span, or the output is deactivated and scales to a constant `0.0`.
+
+7. **`user_func` returns `(succeed, y)`**, not `y`. Return `False` to record a
    failed evaluation; it stays in `db_total` but is excluded from `db_valid`.
 
-6. **MOEA/D requires `population_size` == the number of Das-Dennis reference
+8. **MOEA/D requires `population_size` == the number of Das-Dennis reference
    points**, which is `comb(p + M - 1, M - 1)` for `M` objectives and
    `n_partitions = p`; for 2 objectives that is `p + 1`. A mismatch raises at
    construction.
 
-7. **NRBO is single-objective only.** It raises otherwise.
+9. **NRBO is single-objective only.** It raises otherwise.
 
-8. **`MultiProcessEvaluation` needs `if __name__ == '__main__':`** in the entry
-   script, as any Python multiprocessing does.
+10. **`MultiProcessEvaluation` needs `if __name__ == '__main__':`** in the entry
+    script, as any Python multiprocessing does.
 
 ## Minimal working study, defined in Python
 
@@ -212,6 +227,26 @@ if __name__ == '__main__':
 Set `user_func_supports_parallel=True` instead when the evaluator itself takes
 the whole `xs` matrix and returns `(list_succeed, ys)`.
 
+## Hung and failing solvers
+
+`timeout=3600` bounds **one** external evaluation, not the batch (eight
+processes over thirty-two designs legitimately take four times one evaluation).
+Without a parallel evaluator, set `problem.solver_timeout = 3600` instead.
+On expiry the run script and every process it started are killed — `SIGTERM`,
+then `SIGKILL` after `problem.kill_grace_period` — and the design is recorded as
+a **failure without reading `output.txt`**, so a solver that wrote a result and
+then hung cannot pass that value off as valid. A marker file makes the case
+re-run instead of being skipped on a restart. A job the script submitted to a
+batch queue escapes the kill; have the script wait for it so that killing the
+script kills the wait.
+
+`batch_timeout` is the opt-in hard cap on the whole batch; when it fires the
+designs still running are recorded as failures and the study continues.
+
+An evaluation that raises, or a worker that dies, is recorded as a failed design
+rather than ending the study. The exceptions are setup mistakes:
+`StaleCaseFolderError` and a missing folder name / problem object still stop it.
+
 ## Reproducibility
 
 Set `seed` in the optimization settings, or pass `rng=np.random.default_rng(n)`
@@ -219,8 +254,9 @@ to any driver. Both cover the initial sample **and** the genetic operators.
 
 ## More
 
-- [settings-reference.md](settings-reference.md) — every JSON key, constraint
-  callables, and how to add a settings class.
+- [settings-reference.md](settings-reference.md) — every JSON key, the output
+  bounds / precision / clipping strategy in full, constraint callables, and how
+  to add a settings class.
 - [recipes.md](recipes.md) — surrogate optimization, pre/post-processing hooks,
   restarting a study, analysing an archive, and the error-to-cause table.
 

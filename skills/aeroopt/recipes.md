@@ -15,6 +15,32 @@
 | `Invalid ys shape: ...` | The evaluator was handed the whole `xs` matrix: `user_func_supports_parallel=True` but the function takes one design. |
 | `Individual problem does not match database problem` | Two different `Problem` objects; they compare equal only when their problem-settings names match. |
 | Silent `RuntimeWarning` in numexpr | A constraint divides by a variable that can be zero. |
+| `StaleCaseFolderError: Case folder ... a different design` | `Calculation/` holds cases from an earlier study (a new study numbers from 1 again). Clear or move it, set `"resume": true`, or set `problem.rerun_stale_cases = True`. |
+| `Calculation folder ... already holds N case folders` | The same thing, warned about before the run spends any solver time. |
+| `timeout after ... killing the process tree` | The design exceeded `timeout`; it is recorded as a failure and re-run on the next attempt. |
+| `warning: [evaluation] failed for #i` | That design's evaluator raised. It is recorded as a failed design and the study continues. |
+
+## Hung or failing solvers
+
+```python
+mp = MultiProcessEvaluation(..., n_process=8,
+                            timeout=3600,          # per design
+                            batch_timeout=None)    # whole batch; None = no cap
+problem.solver_timeout = 3600     # same per-design limit without an mp evaluator
+problem.kill_grace_period = 30    # SIGTERM head start before SIGKILL
+```
+
+`timeout` bounds **one** evaluation, never the batch — eight processes over
+thirty-two designs legitimately take four times one evaluation. On expiry the
+run script and everything it started are killed (`SIGTERM`, then `SIGKILL`;
+`taskkill /F /T` on Windows), the design is recorded as a failure **without
+reading `output.txt`** (a solver that wrote a result and then hung must not pass
+it off as valid), and a marker file makes the case re-run rather than be skipped
+on a restart.
+
+A job the run script submitted to a batch queue survives the kill, like any
+process that puts itself in a new session. Have the script wait for the job so
+that killing the script kills the wait.
 
 ## Surrogate-based optimization (SBO)
 
@@ -96,7 +122,7 @@ class RepairCandidates(PreProcess):
             xs, min_scaled_distance=0.01, max_scaled_distance=0.20)
 
         for indi, x in zip(self.opt.db_candidate.individuals, xs):
-            indi.x = x
+            indi.update_x(x)      # not `indi.x = x`: refreshes the cached scaled_x
 
 opt.pre_process = RepairCandidates(opt)
 ```
@@ -131,8 +157,14 @@ opt.post_process = ReportProgress(opt)
 Place the previous `db-total.json` at `<working_directory>/Summary/db-resume.json`.
 Resumed individuals get `generation = 0` and `source = 'previous_database'`.
 
-To resume without re-sampling an initial population, also set
-`"force_initial_population_size": 0`.
+A resumed study takes **no** initial sample — it carries on from the designs it
+loaded instead of spending another `population_size` evaluations on a fresh
+sample of the same space. Set `"force_initial_population_size": 32` to add one
+anyway, e.g. to widen a converged archive.
+
+Clear `Calculation/` only if you are *not* resuming: with `"resume": true` the
+case folders that match the loaded database are reused, and the rest raise
+`StaleCaseFolderError`.
 
 ## Analysing an archive offline
 

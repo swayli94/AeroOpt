@@ -133,20 +133,119 @@ Describes the design variables and outputs.
      - float
      - Duplicate threshold in scaled input space.
 
-.. admonition:: Why output bounds matter
-   :class: note
-
-   Output bounds are not constraints. They define the scaling used to compare
-   objectives with each other. Dominance, crowding distance, reference-point
-   niching and decomposition all operate on scaled objectives, so a drag
-   coefficient in ``[0.01, 0.05]`` and a lift coefficient in ``[0.1, 1.5]``
-   contribute comparably. Bounds that are far too wide compress all the real
-   variation into a sliver of ``[0, 1]`` and weaken diversity preservation.
-
 A variable whose range is smaller than its precision is treated as
 **deactivated**: it is held at its lower bound and contributes nothing to
 distances. This is the supported way to freeze a variable without editing the
 rest of the configuration.
+
+.. _output-bounds-strategy:
+
+Output bounds are a scale, not a limit
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``output_low`` / ``output_upp`` are **not constraints**. Their only consumer is
+:meth:`~aeroopt.core.problem.Problem.scale_y`, an affine map that does **not**
+clip: an evaluation outside the bounds is scaled outside ``[0, 1]``, and nothing
+raises. What the choice changes is how comparable the objectives are to each
+other --- and only part of the machinery is sensitive to that:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 16 50
+
+   * - Consumer
+     - Sensitivity
+     - Why
+   * - MOEA/D decomposition and ideal point
+     - decisive
+     - Weight vectors are spread evenly over the simplex, which assumes the
+       objectives span comparable fractions of ``[0, 1]``.
+   * - RVEA angle-penalized distance
+     - decisive
+     - Niches are assigned by the *angle* between an objective vector and a
+       reference direction: pure geometry in scaled space.
+   * - Kriging with ``train_on_scaled_data``
+     - moderate
+     - Training targets, and the epistemic standard deviations compared across
+       outputs, are scaled by these bounds.
+   * - Sampling an output named in ``sample_variables``
+     - moderate
+     - There the bounds really are the interval being sampled.
+   * - Pareto dominance and non-dominated sorting
+     - none
+     - A per-objective monotone affine map cannot change an ordering.
+   * - Crowding distance
+     - none
+     - Renormalized by the span of each front, so the bounds cancel out.
+   * - NSGA-III niching
+     - none in practice
+     - Renormalized against the population's ideal point and hyperplane
+       intercepts.
+   * - Single-objective DE and NRBO
+     - none
+     - Ranking a single monotone-transformed value.
+
+NSGA-II and NSGA-III therefore tolerate a rough guess; MOEA/D and RVEA do not.
+
+Choosing the output bounds
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Prefer **fixed, hand-chosen** bounds. MOEA/D's ideal point and subproblem slots
+and RVEA's reference vectors persist across generations, so a scale that drifted
+with the data would compare this generation's scalarized values against last
+generation's on a different ruler. Fixed bounds also keep a resumed study, and
+two studies of the same problem, on one ruler.
+
+* **When the physics gives the range, write it down.** A drag coefficient known
+  to lie in ``[0.005, 0.05]`` needs no measurement.
+* **Otherwise run a small design of experiments first**, read
+  ``statistics['min_y']`` and ``statistics['max_y']`` from
+  :class:`~aeroopt.analysis.analyze_database.AnalyzeDatabase`, and set the
+  bounds to cover the observed range with a 10--20 % margin. This is the
+  recommended workflow; a placeholder such as ``±1e6`` left in place is not.
+* **What matters is not the absolute width but the balance.** If one objective
+  sweeps 0.8 of ``[0, 1]`` while another sweeps 0.02, MOEA/D's weight vectors
+  buy nothing --- tighten the second objective's bounds rather than enlarging
+  the population.
+* Bounds far too wide compress the real variation into a sliver of ``[0, 1]``
+  and weaken diversity preservation.
+
+``output_precision``
+^^^^^^^^^^^^^^^^^^^^
+
+``output_precision`` is applied to ``y`` *before* scaling, so it quantizes the
+objective values every comparison sees, not merely what is stored. Setting it to
+the solver's own noise level is a deliberate way to stop the search from chasing
+differences the evaluation cannot resolve; leaving it at the default ``0.0``
+(continuous) is right unless there is such a reason.
+
+Two consequences are worth knowing. ``output_low`` and ``output_upp`` are
+themselves snapped to the grid when the settings are checked. And an output
+whose bound span is smaller than its precision is **deactivated**: it scales to
+a constant ``0.0`` and stops contributing anything --- something to watch for
+when tightening bounds around a quantized output.
+
+Never clip an evaluated ``y``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+:meth:`~aeroopt.core.problem.Problem.check_bounds_y` reports whether an output
+vector is inside the bounds;
+:meth:`~aeroopt.core.problem.Problem.apply_bounds_y` clips it in place. **The
+framework calls neither.** That is deliberate: clipping collapses distinct
+designs onto the same objective value --- a fabricated tie in dominance, and a
+database entry that no longer holds what the solver returned, which no
+downstream check can detect. An out-of-bounds ``y`` is comparatively harmless;
+it costs some MOEA/D and RVEA resolution and nothing else.
+
+When a value out of range means the design is unacceptable, say so explicitly:
+return ``succeed=False`` from the evaluator, or add a constraint
+:math:`g(x, y) \le 0`.
+
+Clip only values that were **constructed rather than measured** --- a surrogate
+extrapolating to a physically impossible value before it feeds an infill
+criterion that assumes ``[0, 1]``, an output sampled or interpolated as a design
+condition, a fixed-axis plot. The test is simply whether the ``y`` in hand is an
+observation or a number the code invented; never clip the first.
 
 
 SettingsProblem
@@ -253,7 +352,7 @@ Controls the optimization loop, independently of the algorithm.
    * - ``force_initial_population_size``
      - int or null
      - ``null``
-     - Overrides ``population_size`` for the first generation only. Set to ``0`` to skip initial sampling entirely, e.g. when resuming.
+     - Overrides ``population_size`` for the first generation only. A resumed study takes no initial sample at all unless this is set, so it is the way to *add* a sample to a resumed archive; ``0`` skips the sample in a fresh study.
    * - ``fname_db_total``
      - str
      - ``"db-total.json"``

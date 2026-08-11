@@ -21,7 +21,9 @@ from aeroopt.core import (
 from aeroopt.optimization.base import OptBaseFramework
 from aeroopt.optimization.moea import Algorithm, DominanceBasedAlgorithm
 from aeroopt.optimization.settings import SettingsDE, SettingsOptimization
-from aeroopt.optimization.utils import sample_de_rand_1_indices, binomial_crossover
+from aeroopt.optimization.utils import (
+    MAX_CANDIDATE_ATTEMPTS, sample_de_rand_1_indices, binomial_crossover,
+)
 
 
 class DiffEvolution(Algorithm):
@@ -60,26 +62,34 @@ class DiffEvolution(Algorithm):
         for i in range(population_size):
             i_t = i % n_pop
             x_t = temp_parents.individuals[i_t].x
-            r0, r1, r2 = sample_de_rand_1_indices(rng, n_pop, i_t)
-            x0 = temp_parents.individuals[r0].x
-            x1 = temp_parents.individuals[r1].x
-            x2 = temp_parents.individuals[r2].x
-            mutant = x0 + scale_factor * (x1 - x2)
-            trial_x = binomial_crossover(
-                x_t, mutant, cross_rate, rng)
-            problem.apply_bounds_x(trial_x)
-            problem.apply_precision_x(trial_x)
 
-            indi = Individual(problem=problem, x=trial_x)
-            indi.source = 'evolutionary_operator'
-            indi.generation = iteration
-            db_candidate.add_individual(
-                indi,
-                check_duplication=True,
-                check_bounds=True,
-                deepcopy=False,
-                print_warning_info=False,
-            )
+            # A trial vector that duplicates one already generated is re-drawn
+            # with fresh donors instead of costing this slot its offspring.
+            for _attempt in range(MAX_CANDIDATE_ATTEMPTS):
+
+                r0, r1, r2 = sample_de_rand_1_indices(rng, n_pop, i_t)
+                x0 = temp_parents.individuals[r0].x
+                x1 = temp_parents.individuals[r1].x
+                x2 = temp_parents.individuals[r2].x
+                mutant = x0 + scale_factor * (x1 - x2)
+                trial_x = binomial_crossover(
+                    x_t, mutant, cross_rate, rng)
+                problem.apply_bounds_x(trial_x)
+                problem.apply_precision_x(trial_x)
+
+                indi = Individual(problem=problem, x=trial_x)
+                indi.source = 'evolutionary_operator'
+                indi.generation = iteration
+                added, _ = db_candidate.add_individual(
+                    indi,
+                    check_duplication=True,
+                    check_bounds=True,
+                    deepcopy=False,
+                    print_warning_info=False,
+                )
+
+                if added:
+                    break
 
 
 class OptDE(OptBaseFramework):

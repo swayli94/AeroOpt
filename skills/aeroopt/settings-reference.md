@@ -112,6 +112,63 @@ A variable whose range is smaller than its precision is **deactivated**: held at
 its lower bound and ignored in distances. This is the supported way to freeze a
 variable without restructuring the configuration.
 
+### Output bounds, precision and clipping
+
+`output_low` / `output_upp` are **not constraints**. Their only consumer is
+`Problem.scale_y`, an affine map that does **not** clip: a `y` outside the
+bounds is scaled outside `[0, 1]` and nothing raises. The choice only decides
+how comparable the objectives are to each other, and only part of the machinery
+is sensitive to it:
+
+| Consumer | Sensitivity | Why |
+| ---------- | ------------- | ----- |
+| MOEA/D decomposition + ideal point | decisive | Weight vectors spread evenly over the simplex, assuming comparable spans. |
+| RVEA angle-penalized distance | decisive | Niching is by *angle* in scaled space — pure geometry. |
+| Kriging with `train_on_scaled_data` | moderate | Training targets and cross-output `epistemic_std` are scaled by them. |
+| Output named in `sample_variables` | moderate | There the bounds really are the sampled interval. |
+| Pareto dominance / non-dominated sorting | none | Monotone affine per objective; ordering unchanged. |
+| Crowding distance | none | Renormalized by each front's own span. |
+| NSGA-III niching | none in practice | Renormalized by ideal point + hyperplane intercepts. |
+| Single-objective DE / NRBO | none | Ranking one monotone-transformed value. |
+
+So NSGA-II/III tolerate a rough guess; MOEA/D and RVEA do not.
+
+**Choosing them.** Prefer fixed, hand-chosen bounds. MOEA/D's ideal point and
+subproblem slots and RVEA's reference vectors persist across generations, so a
+scale drifting with the data would compare this generation against the last on a
+different ruler; fixed bounds also keep a resumed study, and two studies of the
+same problem, comparable.
+
+- Physics first: a `Cd` known to lie in `[0.005, 0.05]` needs no measurement.
+- Otherwise run a small DOE, read `statistics['min_y']` / `['max_y']` from
+  `AnalyzeDatabase`, and cover the observed range with a 10–20 % margin. A
+  placeholder like `±1e6` left in place is not a choice.
+- Balance beats width: if one objective sweeps 0.8 of `[0, 1]` and another
+  0.02, MOEA/D's weights buy nothing — tighten the second, don't grow the
+  population.
+
+**`output_precision`** is applied to `y` *before* scaling, so it quantizes the
+values every comparison sees, not just what is stored. Setting it to the
+solver's noise level deliberately stops the search chasing unresolvable
+differences; `0.0` (continuous) is the right default otherwise. Note that
+`output_low` / `output_upp` are themselves snapped to the grid at construction,
+and an output whose bound span is below its precision is deactivated to a
+constant `0.0`.
+
+**Clipping.** `check_bounds_y` reports; `apply_bounds_y` clips in place. The
+framework calls neither, deliberately: clipping collapses distinct designs onto
+one objective value — a fabricated tie in dominance, and a stored `y` the solver
+never returned, undetectable downstream. An out-of-bounds `y` is comparatively
+harmless (it costs MOEA/D and RVEA some resolution, nothing more).
+
+- Value out of range means the design is unacceptable → `succeed=False` from the
+  evaluator, or a constraint `g(x, y) <= 0`. Not a clip.
+- Clip only what the code *constructed* rather than measured: a surrogate
+  extrapolating to a physically impossible value before an infill criterion that
+  assumes `[0, 1]`, an output sampled or interpolated as a design condition, a
+  fixed-axis plot. Ask whether this `y` is an observation or a number you
+  invented; never clip the first.
+
 ## SettingsProblem
 
 | Key | Type | Meaning |
@@ -171,7 +228,7 @@ Every constraint contributes `max(0, g)` to `sum_violation`. An individual with
 | `info_level_on_screen` | `1` | Messages at or below this level print; all are logged. |
 | `critical_potential_x` | `0.2` | Potential at the typical neighbour distance. |
 | `seed` | `null` | Seeds the initial sample **and** the operators. |
-| `force_initial_population_size` | `null` | Overrides `population_size` for the first generation only; `0` skips initial sampling. |
+| `force_initial_population_size` | `null` | Overrides `population_size` for the first generation only. A resumed study samples nothing unless this is set; `0` skips the sample in a fresh study. |
 | `fname_db_total` | `"db-total.json"` | Written to `Summary`. |
 | `fname_db_elite` | `"db-elite.json"` | Written to `Summary`. |
 | `fname_db_resume` | `"db-resume.json"` | Read when `resume` is true. |

@@ -4,6 +4,8 @@ Individual definition.
 
 from __future__ import annotations
 
+import copy
+
 import numpy as np
 from typing import Tuple, Dict, Any
 from aeroopt.core.problem import Problem
@@ -84,6 +86,31 @@ class Individual:
         self.pareto_rank : int = 0 # lower the better
         self.mutation_rate : float = 0.9
         self.crossover_rate : float = 0.9
+
+    def __deepcopy__(self, memo: Dict[int, Any]) -> 'Individual':
+        '''
+        Copy the individual's own data, but keep pointing at the same problem.
+
+        Individuals are deep-copied in bulk --- `db_valid` is rebuilt from
+        `db_total` on every iteration --- and the default recursion would clone
+        the whole `Problem` behind each one: its settings arrays and its
+        constraint callables, once per individual. That is most of the memory
+        and time of an archive, it silently freezes each individual against the
+        problem as it was when the copy was made, and it fails outright when a
+        constraint callable holds something that cannot be copied.
+
+        The problem describes the study, not the design, so it is shared.
+        '''
+        new = self.__class__.__new__(self.__class__)
+        memo[id(self)] = new
+
+        for key, value in self.__dict__.items():
+            if key == 'problem':
+                new.problem = value
+            else:
+                setattr(new, key, copy.deepcopy(value, memo))
+
+        return new
 
     @property
     def is_evaluated(self) -> bool:

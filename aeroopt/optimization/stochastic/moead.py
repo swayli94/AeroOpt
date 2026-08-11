@@ -34,6 +34,7 @@ from aeroopt.optimization.moea import (
     DecompositionBasedAlgorithm,
 )
 from aeroopt.optimization.utils import (
+    MAX_CANDIDATE_ATTEMPTS,
     polynomial_mutation,
     sbx_crossover,
 )
@@ -180,32 +181,38 @@ class MOEAD(Algorithm):
         n_parents = 2
 
         for k in order:
-            p_slots = MOEAD._select_parent_slots(
-                int(k), neighbors, n_pop, n_parents,
-                prob_neighbor, rng)
-            id1 = int(slot_ids[p_slots[0]])
-            id2 = int(slot_ids[p_slots[1]])
-            i1 = db.get_index_from_ID(id1)
-            i2 = db.get_index_from_ID(id2)
-            x1, x2 = sbx_crossover(
-                db.individuals[i1].x,
-                db.individuals[i2].x,
-                problem=db_candidate.problem,
-                cross_rate=cross_rate, pow_sbx=pow_sbx, rng=rng)
-            pick = x1 if rng.random() < 0.5 else x2
-            pick = polynomial_mutation(
-                pick, problem=db_candidate.problem,
-                mut_rate=mut_rate, pow_poly=pow_poly, rng=rng)
 
-            indi = Individual(problem=db_candidate.problem, x=pick)
-            indi.source = 'evolutionary_operator'
-            indi.generation = int(iteration)
-            added, _ = db_candidate.add_individual(
-                indi, check_duplication=True, check_bounds=True,
-                deepcopy=False, print_warning_info=False)
-            if not added:
-                continue
-            pending_list.append((int(k), indi))
+            # A subproblem whose offspring duplicates one already generated
+            # gets another draw rather than no offspring at all.
+            for _attempt in range(MAX_CANDIDATE_ATTEMPTS):
+
+                p_slots = MOEAD._select_parent_slots(
+                    int(k), neighbors, n_pop, n_parents,
+                    prob_neighbor, rng)
+                id1 = int(slot_ids[p_slots[0]])
+                id2 = int(slot_ids[p_slots[1]])
+                i1 = db.get_index_from_ID(id1)
+                i2 = db.get_index_from_ID(id2)
+                x1, x2 = sbx_crossover(
+                    db.individuals[i1].x,
+                    db.individuals[i2].x,
+                    problem=db_candidate.problem,
+                    cross_rate=cross_rate, pow_sbx=pow_sbx, rng=rng)
+                pick = x1 if rng.random() < 0.5 else x2
+                pick = polynomial_mutation(
+                    pick, problem=db_candidate.problem,
+                    mut_rate=mut_rate, pow_poly=pow_poly, rng=rng)
+
+                indi = Individual(problem=db_candidate.problem, x=pick)
+                indi.source = 'evolutionary_operator'
+                indi.generation = int(iteration)
+                added, _ = db_candidate.add_individual(
+                    indi, check_duplication=True, check_bounds=True,
+                    deepcopy=False, print_warning_info=False)
+
+                if added:
+                    pending_list.append((int(k), indi))
+                    break
 
     @staticmethod
     def neighbor_indices(ref_dirs: np.ndarray, n_neighbors: int) -> np.ndarray:

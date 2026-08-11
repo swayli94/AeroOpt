@@ -116,10 +116,12 @@ class CustomPreProcess(PreProcess):
         )
 
         for i, indi in enumerate(self.opt.db_candidate.individuals):
-            indi.x = xs_new[i, :].copy()
+            # `update_x`, not `indi.x = ...`: the scaled input is cached at
+            # construction and drives the duplicate check.
+            indi.update_x(xs_new[i, :].copy())
             indi.valid_evaluation = False
-            indi.y = None
-            indi.sum_violation = None
+            indi.y = np.array([])
+            indi.sum_violation = 0.0
 
         return None
 

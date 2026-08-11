@@ -504,7 +504,10 @@ class Database:
         if self.size > 0:
             is_duplicated, closest_index = self.check_duplication(indi.x)
             if is_duplicated and check_duplication:
-                text = f'Failed to add individual (ID={indi.ID}): duplicated with ID {closest_index} in database'
+                # `check_duplication` returns a position, not an ID; the log is
+                # read to go and look the other design up.
+                closest_ID = self.individuals[int(closest_index)].ID
+                text = f'Failed to add individual (ID={indi.ID}): duplicated with ID {closest_ID} in database'
                 if print_warning_info:
                     print(f'>>> {text}')
                 return False, text

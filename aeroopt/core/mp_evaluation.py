@@ -14,9 +14,12 @@ from __future__ import annotations
 
 import numpy as np
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from aeroopt.core.problem import Problem
-from typing import List, Callable
+from concurrent.futures import (
+    Future, ProcessPoolExecutor, as_completed,
+    TimeoutError as FuturesTimeoutError,
+)
+from aeroopt.core.problem import Problem, StaleCaseFolderError
+from typing import Callable, Dict, Iterator, List, Tuple
 
 
 class MultiProcessEvaluation:
@@ -41,7 +44,16 @@ class MultiProcessEvaluation:
     information: bool
         whether print information on screen
     timeout: float or None
-        limit to the wait time. If `timeout` is None, no limit on wait time.
+        seconds one *external* evaluation may take before its process tree is
+        killed and the design is recorded as a failure, see
+        :meth:`~aeroopt.core.problem.Problem.external_run`. None means no limit.
+        It does not bound a user-defined `func`, which runs in-process.
+    batch_timeout: float or None
+        seconds the *whole batch* may take. None (the default) means no limit,
+        which is what a per-evaluation `timeout` already bounds: with more
+        designs than processes the batch legitimately takes several times
+        longer than one evaluation. When it does fire, the designs still
+        running are recorded as failures and their solvers are left to finish.
 
     Notes
     ----------------
@@ -69,7 +81,8 @@ class MultiProcessEvaluation:
     >>> # list_succeed: list [bool], length is n
     '''
     def __init__(self, dim_input: int, dim_output: int, func: Callable|None = None,
-                    n_process: int|None = None, information: bool = True, timeout: float|None = None):
+                    n_process: int|None = None, information: bool = True,
+                    timeout: float|None = None, batch_timeout: float|None = None):
         '''
         Configure the evaluator.
 
@@ -92,6 +105,7 @@ class MultiProcessEvaluation:
         self.n_process = n_process
         self.information = information
         self.timeout = timeout
+        self.batch_timeout = batch_timeout
 
     def external_run(self, name: str, x: np.ndarray, prob: Problem):
         '''
@@ -123,6 +137,14 @@ class MultiProcessEvaluation:
 
         >>> succeed, y, i = func_mp(self, x, i, **kwargs)
 
+        An evaluation that raises is reported as a failed design, not as an
+        error: a solver bridge that rejects its input, or a mesher that throws,
+        must not take the whole study down with it. Two things are re-raised
+        instead, because they are setup mistakes that would fail identically for
+        every design and that no amount of retrying fixes: a missing folder name
+        or problem object, and
+        :class:`~aeroopt.core.problem.StaleCaseFolderError`.
+
         Parameters
         -----------------
         x: ndarray [dim_input]
@@ -145,21 +167,26 @@ class MultiProcessEvaluation:
         '''
         if self.func is None:
 
-            if 'name' in kwargs.keys():
-                name : str = kwargs['name']
-            else:
+            if 'name' not in kwargs.keys():
                 raise Exception('Must define name as the the working folder')
 
-            if 'prob' in kwargs.keys():
-                prob : Problem = kwargs['prob']
-            else:
+            if 'prob' not in kwargs.keys():
                 raise Exception('Must provide Problem object `prob` for external running')
 
-            succeed, y = self.external_run(name, x, prob)
+        try:
+            if self.func is None:
+                succeed, y = self.external_run(kwargs['name'], x, kwargs['prob'])
+            else:
+                succeed, y = self.func(x, **kwargs)
 
-        else:
+        except StaleCaseFolderError:
+            raise
 
-            succeed, y = self.func(x, **kwargs)
+        except Exception as e:
+            if self.information:
+                print('    warning: [evaluation] failed for #%d: %s: %s'
+                      % (i, type(e).__name__, e))
+            return False, np.zeros(self.dim_output), i
 
         return succeed, y, i
 
@@ -232,19 +259,20 @@ class MultiProcessEvaluation:
                     raise Exception('Must provide Problem object `prob` for external running')
 
                 for i in range(n):
-                    list_succeed[i], ys[i,:] = self.external_run(
-                        list_name[i], xs[i,:], prob)
+                    list_succeed[i], ys[i,:], _ = self.func_mp(
+                        xs[i,:], i, name=list_name[i], prob=prob)
 
             else:
                 for i in range(n):
-                    list_succeed[i], ys[i,:] = self.func(xs[i,:], **kwargs)
+                    list_succeed[i], ys[i,:], _ = self.func_mp(
+                        xs[i,:], i, **kwargs)
 
         #* Multiprocessing calculation
         else:
 
             with ProcessPoolExecutor(max_workers=self.n_process) as executor:
 
-                futures = []
+                index_of_future = {}
 
                 for i in range(n):
 
@@ -253,17 +281,19 @@ class MultiProcessEvaluation:
                         if list_name is None:
                             raise Exception('Must provide a list of working folder names')
 
-                        futures.append(executor.submit(self.func_mp, xs[i,:], i, name=list_name[i], **kwargs))
+                        future = executor.submit(self.func_mp, xs[i,:], i, name=list_name[i], **kwargs)
 
                     else:
-                        futures.append(executor.submit(self.func_mp, xs[i,:], i, **kwargs))
+                        future = executor.submit(self.func_mp, xs[i,:], i, **kwargs)
+
+                    index_of_future[future] = i
 
                 num = 0
                 t0 = time.perf_counter()
 
-                for f in as_completed(futures, timeout=self.timeout):
+                for f in self._completed_futures(index_of_future):
 
-                    succeed, y, i = f.result()
+                    succeed, y, i = f
 
                     ys[i,:] = y
                     list_succeed[i] = succeed
@@ -275,6 +305,58 @@ class MultiProcessEvaluation:
                             print('  > parallel calculation done: n = %d, t = %.2f min'%(num, (t1-t0)/60.0))
 
         return list_succeed, ys
+
+    def _completed_futures(self, index_of_future: Dict[Future, int]
+                           ) -> Iterator[Tuple[bool, np.ndarray, int]]:
+        '''
+        Yield `(succeed, y, i)` for every submitted design, in completion order.
+
+        A worker that dies rather than returns --- a killed process, a result
+        that cannot be pickled, a `BrokenProcessPool` --- yields a failure for
+        its design instead of propagating, so one broken evaluation cannot end
+        the study. When `batch_timeout` expires, everything still running is
+        yielded as a failure; those solvers are left to finish, since the pool
+        has no way to interrupt them.
+
+        Parameters:
+        -----------
+        index_of_future: Dict[Future, int]
+            Submitted futures, mapped to the row of `xs` each one evaluates.
+
+        Yields:
+        --------
+        (succeed, y, i): Tuple[bool, np.ndarray, int]
+        '''
+        pending = set(index_of_future)
+
+        try:
+            for future in as_completed(index_of_future, timeout=self.batch_timeout):
+
+                pending.discard(future)
+                i = index_of_future[future]
+
+                try:
+                    yield future.result()
+
+                except StaleCaseFolderError:
+                    raise
+
+                except Exception as e:
+                    if self.information:
+                        print('    warning: [evaluation] worker for #%d died: %s: %s'
+                              % (i, type(e).__name__, e))
+                    yield False, np.zeros(self.dim_output), i
+
+        except FuturesTimeoutError:
+            if self.information:
+                print('    warning: [evaluation] batch timeout after %.1f s, '
+                      '%d of %d designs unfinished'
+                      % (float(self.batch_timeout or 0.0), len(pending),
+                         len(index_of_future)))
+
+            for future in pending:
+                future.cancel()
+                yield False, np.zeros(self.dim_output), index_of_future[future]
 
 
 def template_user_func(x: np.ndarray, **kwargs) -> tuple[bool, np.ndarray]:

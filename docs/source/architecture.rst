@@ -77,8 +77,11 @@ one an algorithm reads is most of understanding the framework.
 
 ``db_valid`` is deliberately derived rather than maintained incrementally.
 Constraints may depend on outputs, and a post-processing hook may change what
-counts as feasible, so recomputing from ``db_total`` keeps the archive
-consistent with the current definition of feasibility.
+counts as feasible --- or prune ``db_total`` outright --- so
+:meth:`~aeroopt.optimization.base.OptBaseFramework.derive_valid_from_total`
+recomputes it both after the merge and after the hook. An individual the hook
+removed is therefore gone from ``db_valid``, from ``db_elite`` and from the
+summary of that same iteration.
 
 
 The iteration loop
@@ -98,9 +101,10 @@ The iteration loop
        update_parameters()               e.g. retrain a surrogate, adapt vectors
        generate_candidate_individuals()  ── algorithm-specific ──
        pre_process.apply()               optional: repair / screen candidates
-       evaluate_db_candidate()           the expensive step
+       evaluate_db_candidate()           snap to grid, drop known designs, evaluate
        update_total_and_valid_with_candidate()
        post_process.apply()              optional: inspect / prune the archive
+       derive_valid_from_total()         only when a hook ran
        select_elite_from_valid()
        save_results()
 
@@ -207,6 +211,18 @@ modes:
 In every mode a failed evaluation sets ``valid_evaluation = False``,
 ``y`` to an empty array and ``sum_violation`` to infinity --- the design is
 remembered as failed rather than silently scored as zero.
+
+"Failed" covers every way one design can go wrong, and in all three modes alike:
+the evaluator returning ``succeed=False``, the evaluator *raising*, an external
+run producing no output file, an external run exceeding its ``timeout``, and a
+worker process dying outright. None of them ends the study. Two things still
+do, because they are setup mistakes that would fail identically for every
+design: :class:`~aeroopt.core.StaleCaseFolderError`, which says the study is
+about to read another study's results, and a missing folder name or problem
+object for an external run.
+
+A timeout kills the run script *and* the processes it started, and does not
+read the case's output file --- see :ref:`solver-timeouts`.
 
 
 Reproducibility

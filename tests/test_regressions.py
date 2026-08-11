@@ -7,15 +7,34 @@ future refactor cannot quietly reintroduce it.
 
 import os
 import platform
+import time
 
 import numpy as np
 import pytest
 
 from aeroopt.analysis.analyze_database import AnalyzeDatabase
 from aeroopt.core import (
-    Database, Individual, Problem, SettingsData, SettingsProblem,
-    StaleCaseFolderError,
+    Database, Individual, MultiProcessEvaluation, Problem, SettingsData,
+    SettingsProblem, StaleCaseFolderError,
 )
+
+
+#* Worker functions for the parallel-evaluation tests. They must be importable
+#* by name, because a ProcessPoolExecutor pickles them to reach its workers.
+
+def _worker_ok(x, **kwargs):
+    return True, np.array([float(x[0]) * 2.0])
+
+
+def _worker_raises_above_half(x, **kwargs):
+    if float(x[0]) > 0.5:
+        raise RuntimeError('solver bridge rejected the design')
+    return True, np.array([float(x[0]) * 2.0])
+
+
+def _worker_sleeps(x, **kwargs):
+    time.sleep(0.3)
+    return True, np.array([float(x[0]) * 2.0])
 
 
 @pytest.fixture(scope="module")
@@ -737,6 +756,471 @@ class TestExternalRunStaleFolderRegressions:
         opt._warn_about_existing_case_folders()
 
         assert any('already holds 1 case' in text for text in messages), messages
+
+
+@pytest.mark.skipif(platform.system() == 'Windows',
+                    reason='the shell script variant and POSIX signals')
+class TestSolverTimeoutRegressions:
+    """
+    `subprocess.run(timeout=...)` signals the direct child only, so the timeout
+    killed the run *script* and left the solver it had started orphaned but
+    running --- still holding a licence and a core, which is what the timeout
+    existed to prevent. The timed-out case then had its `output.txt` read back,
+    so a solver that wrote a result and hung afterwards was recorded as a
+    success, and on the next attempt the case was skipped as "already prepared".
+    """
+
+    def _problem(self, tmp_path, script: str):
+        runfiles = tmp_path / 'Runfiles'
+        runfiles.mkdir(exist_ok=True)
+        (runfiles / 'run.sh').write_text(script, encoding='utf-8')
+
+        sd = SettingsData.from_values(
+            'd', name_input=['x'], input_low=[0.0], input_upp=[1.0],
+            name_output=['y'], output_low=[-10.0], output_upp=[10.0])
+        sp = SettingsProblem.from_values('d', sd, output_type=[-1],
+                                         constraint_strings=[])
+        problem = Problem(sd, sp)
+        problem.calculation_folder = str(tmp_path / 'Calculation')
+        problem.runfiles_folder = str(runfiles)
+        problem.kill_grace_period = 1.0
+        return problem
+
+    @staticmethod
+    def _is_alive(pid: int) -> bool:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            return False
+        return True
+
+    def test_timeout_kills_the_solver_the_script_started(self, tmp_path):
+        # The script starts the "solver" as a child and waits for it, the way a
+        # run script wraps abaqus or mpirun.
+        problem = self._problem(tmp_path, (
+            "#!/bin/sh\n"
+            "sh -c 'echo $$ > solver.pid; sleep 60'\n"
+        ))
+
+        pid_file = tmp_path / 'Calculation' / 'case_1' / 'solver.pid'
+        solver_pid = None
+        try:
+            succeed, _ = problem.external_run('case_1', np.array([0.25]),
+                                              information=False, timeout=2.0)
+
+            assert succeed is False
+            assert pid_file.exists(), 'the solver never started; test is not meaningful'
+
+            solver_pid = int(pid_file.read_text().strip())
+
+            deadline = time.time() + 10.0
+            while self._is_alive(solver_pid) and time.time() < deadline:
+                time.sleep(0.1)
+
+            assert not self._is_alive(solver_pid), (
+                f'the solver (pid {solver_pid}) outlived the timeout')
+
+        finally:
+            if solver_pid is not None and self._is_alive(solver_pid):
+                os.kill(solver_pid, 9)
+
+    def test_timeout_is_a_failure_even_when_an_output_file_exists(self, tmp_path):
+        # Writes a result, then hangs: the result describes a run that never
+        # finished, so it must not be recorded.
+        problem = self._problem(tmp_path, (
+            "#!/bin/sh\n"
+            "echo 'y 3.75' > output.txt\n"
+            "sleep 60\n"
+        ))
+
+        succeed, _ = problem.external_run('case_1', np.array([0.25]),
+                                          information=False, timeout=2.0)
+
+        assert succeed is False
+        assert (tmp_path / 'Calculation' / 'case_1' / problem.timeout_marker_fname).exists()
+
+    def test_a_timed_out_case_is_re_run_not_skipped(self, tmp_path):
+        problem = self._problem(tmp_path, (
+            "#!/bin/sh\n"
+            "echo 'y 3.75' > output.txt\n"
+            "sleep 60\n"
+        ))
+
+        succeed, _ = problem.external_run('case_1', np.array([0.25]),
+                                          information=False, timeout=2.0)
+        assert succeed is False
+
+        # The solver is fixed (or the machine is less loaded) and the study is
+        # restarted with the same design.
+        (tmp_path / 'Runfiles' / 'run.sh').write_text(
+            "#!/bin/sh\n"
+            "echo 'y 1.5' > output.txt\n",
+            encoding='utf-8')
+
+        succeed, y = problem.external_run('case_1', np.array([0.25]),
+                                          information=False, timeout=10.0)
+
+        assert succeed is True
+        np.testing.assert_allclose(y, [1.5])
+        assert not (tmp_path / 'Calculation' / 'case_1' / problem.timeout_marker_fname).exists()
+
+    def test_a_finished_case_is_still_skipped_on_restart(self, tmp_path):
+        """The restart shortcut must survive the timeout handling."""
+        problem = self._problem(tmp_path, (
+            "#!/bin/sh\n"
+            "echo run >> runs.log\n"
+            "echo 'y 1.5' > output.txt\n"
+        ))
+
+        for _ in range(3):
+            succeed, y = problem.external_run('case_1', np.array([0.25]),
+                                              information=False, timeout=10.0)
+            assert succeed is True
+            np.testing.assert_allclose(y, [1.5])
+
+        runs = (tmp_path / 'Calculation' / 'case_1' / 'runs.log').read_text()
+        assert runs.count('run') == 1, 'a finished case was re-run'
+
+    def test_a_run_within_the_timeout_is_unaffected(self, tmp_path):
+        problem = self._problem(tmp_path, (
+            "#!/bin/sh\n"
+            "sleep 0.2\n"
+            "awk '{printf \"y %.9f\\n\", $2 * 2}' input.txt > output.txt\n"
+        ))
+
+        succeed, y = problem.external_run('case_1', np.array([0.25]),
+                                          information=False, timeout=20.0)
+
+        assert succeed is True
+        np.testing.assert_allclose(y, [0.5], atol=1e-9)
+
+    def test_solver_timeout_bounds_a_serial_study(self, tmp_path):
+        """
+        Without a `MultiProcessEvaluation` there was no way to bound an external
+        run at all: `Database.evaluate_individuals` calls `external_run` with no
+        timeout, so one hung solver hung the whole study forever.
+        """
+        problem = self._problem(tmp_path, "#!/bin/sh\nsleep 60\n")
+        problem.solver_timeout = 2.0
+
+        db = Database(problem, database_type='total')
+        db.add_individual(Individual(problem, x=np.array([0.25]), ID=1),
+                          print_warning_info=False)
+
+        t0 = time.perf_counter()
+        db.evaluate_individuals(mp_evaluation=None, user_func=None)
+        elapsed = time.perf_counter() - t0
+
+        assert elapsed < 30.0, 'the serial study waited for the hung solver'
+        assert db.individuals[0].valid_evaluation is False
+        assert db.individuals[0].y.size == 0
+
+    def test_a_missing_run_script_is_a_failure_not_a_timeout(self, tmp_path):
+        problem = self._problem(tmp_path, "#!/bin/sh\nexit 1\n")
+        (tmp_path / 'Runfiles' / 'run.sh').unlink()
+
+        succeed, _ = problem.external_run('case_1', np.array([0.25]),
+                                          information=False, timeout=5.0)
+
+        assert succeed is False
+        assert not (tmp_path / 'Calculation' / 'case_1' / problem.timeout_marker_fname).exists()
+
+
+class TestParallelEvaluationRegressions:
+    """
+    `MultiProcessEvaluation` used its per-evaluation `timeout` as the timeout of
+    `as_completed`, i.e. of the whole batch. With more designs than processes
+    the batch legitimately takes several times one evaluation, so the setting
+    that protects against a hung solver reliably killed the study instead ---
+    after the pool had finished the work, since leaving the `with` block waits.
+    A worker that raised took the study down the same way.
+    """
+
+    def test_a_per_evaluation_timeout_does_not_cap_the_batch(self):
+        xs = np.linspace(0.0, 1.0, 4).reshape(-1, 1)
+
+        # Four 0.3 s designs through one process take ~1.2 s, well past the
+        # 0.5 s any single one of them is allowed.
+        mp = MultiProcessEvaluation(1, 1, func=_worker_sleeps, n_process=1,
+                                    information=False, timeout=0.5)
+
+        list_succeed, ys = mp.evaluate(xs)
+
+        assert all(list_succeed)
+        np.testing.assert_allclose(ys[:, 0], xs[:, 0] * 2.0)
+
+    def test_a_raising_design_is_recorded_as_a_failure(self):
+        xs = np.linspace(0.0, 1.0, 4).reshape(-1, 1)
+
+        mp = MultiProcessEvaluation(1, 1, func=_worker_raises_above_half,
+                                    n_process=2, information=False)
+
+        list_succeed, ys = mp.evaluate(xs)
+
+        assert list_succeed == [x[0] <= 0.5 for x in xs], list_succeed
+        np.testing.assert_allclose(ys[0, 0], 0.0)
+
+    def test_a_raising_design_is_recorded_as_a_failure_in_serial_too(self):
+        xs = np.linspace(0.0, 1.0, 4).reshape(-1, 1)
+
+        mp = MultiProcessEvaluation(1, 1, func=_worker_raises_above_half,
+                                    n_process=None, information=False)
+
+        list_succeed, _ = mp.evaluate(xs)
+
+        assert list_succeed == [x[0] <= 0.5 for x in xs], list_succeed
+
+    def test_batch_timeout_reports_failures_instead_of_raising(self):
+        xs = np.linspace(0.0, 1.0, 3).reshape(-1, 1)
+
+        mp = MultiProcessEvaluation(1, 1, func=_worker_sleeps, n_process=1,
+                                    information=False, batch_timeout=0.05)
+
+        list_succeed, ys = mp.evaluate(xs)
+
+        assert len(list_succeed) == 3
+        assert not all(list_succeed), 'the batch timeout did not fire'
+        assert ys.shape == (3, 1)
+
+    def test_a_healthy_batch_is_unaffected(self):
+        xs = np.linspace(0.0, 1.0, 5).reshape(-1, 1)
+
+        mp = MultiProcessEvaluation(1, 1, func=_worker_ok, n_process=2,
+                                    information=False)
+
+        list_succeed, ys = mp.evaluate(xs)
+
+        assert all(list_succeed)
+        np.testing.assert_allclose(ys[:, 0], xs[:, 0] * 2.0)
+
+    def test_a_stale_case_folder_still_stops_the_study(self, tmp_path, monkeypatch):
+        """
+        The failure handling must not swallow the one error that means the
+        results are being read from another study.
+        """
+        sd = SettingsData.from_values(
+            'd', name_input=['x'], input_low=[0.0], input_upp=[1.0],
+            name_output=['y'], output_low=[-10.0], output_upp=[10.0])
+        sp = SettingsProblem.from_values('d', sd, output_type=[-1],
+                                         constraint_strings=[])
+        problem = Problem(sd, sp)
+
+        case_dir = tmp_path / 'Calculation' / 'case_1'
+        case_dir.mkdir(parents=True)
+        (case_dir / 'input.txt').write_text('  x  0.250000000\n', encoding='utf-8')
+        monkeypatch.chdir(tmp_path)
+
+        mp = MultiProcessEvaluation(1, 1, func=None, n_process=None,
+                                    information=False)
+
+        with pytest.raises(StaleCaseFolderError):
+            mp.evaluate(np.array([[0.75]]), list_name=['case_1'], prob=problem)
+
+
+class TestEvaluationBudgetRegressions:
+    """
+    An evaluation is the expensive thing in this framework, and two of them were
+    being spent on designs that could not add anything: candidates duplicating
+    one already in `db_total` were evaluated and only *then* rejected by the
+    merge, and a resumed study re-sampled a whole initial population --- with a
+    fixed seed, the identical one it had already evaluated.
+    """
+
+    def _study(self, tmp_path, counter, resume=False, **settings):
+        from aeroopt.optimization import OptDE, SettingsDE, SettingsOptimization
+
+        problem = _grid_problem([1.0, 0.1, 0.0], low=[2.0, 0.5, 0.0],
+                                upp=[12.0, 2.0, 1.0])
+
+        def user_func(x):
+            counter.append(x.copy())
+            return True, np.array([float(np.sum(x**2))])
+
+        fields = dict(population_size=16, max_iterations=8, seed=1,
+                      working_directory=str(tmp_path), info_level_on_screen=0,
+                      resume=resume)
+        fields.update(settings)
+
+        return OptDE(
+            problem=problem,
+            optimization_settings=SettingsOptimization.from_values('o', **fields),
+            algorithm_settings=SettingsDE.from_values('a', cross_rate=0.9),
+            user_func=user_func, save_result_files=True, logging=False,
+        )
+
+    def test_no_evaluation_is_spent_on_an_already_evaluated_design(self, tmp_path):
+        evaluated = []
+        opt = self._study(tmp_path, evaluated)
+        opt.main()
+
+        assert len(evaluated) == opt.db_total.size, (
+            f'{len(evaluated) - opt.db_total.size} evaluations produced nothing')
+
+    def test_resuming_does_not_re_sample_an_initial_population(self, tmp_path):
+        import shutil
+
+        first = []
+        opt = self._study(tmp_path, first)
+        opt.main()
+
+        summary = tmp_path / 'Summary'
+        shutil.copy(summary / 'db-total.json', summary / 'db-resume.json')
+
+        second = []
+        opt2 = self._study(tmp_path, second, resume=True)
+        opt2.main()
+
+        assert len(second) == opt2.db_total.size - opt.db_total.size, (
+            'the resumed run paid for designs it already had')
+        assert opt2.db_total.size > opt.db_total.size, 'the resumed run made no progress'
+
+    def test_force_initial_population_size_still_samples_on_resume(self, tmp_path):
+        import shutil
+
+        first = []
+        opt = self._study(tmp_path, first, max_iterations=0)
+        opt.main()
+
+        summary = tmp_path / 'Summary'
+        shutil.copy(summary / 'db-total.json', summary / 'db-resume.json')
+
+        second = []
+        opt2 = self._study(tmp_path, second, max_iterations=0, resume=True,
+                           force_initial_population_size=8, seed=99)
+        opt2.main()
+
+        assert len(second) > 0, 'an explicit initial population size was ignored'
+
+    def test_a_generation_is_not_silently_short(self, tmp_path):
+        """
+        Operators dropped a slot whenever its offspring duplicated one already
+        drawn, so on a coarse grid the generation --- and with it the search ---
+        quietly shrank.
+        """
+        opt = self._study(tmp_path, [], max_iterations=0)
+        opt.main()
+
+        sizes = []
+        for iteration in range(1, 6):
+            opt.iteration = iteration
+            opt.generate_candidate_individuals()
+            sizes.append(opt.db_candidate.size)
+            opt.evaluate_db_candidate()
+            opt.update_total_and_valid_with_candidate()
+
+        assert min(sizes) >= opt.population_size, sizes
+
+
+class TestPostProcessRegressions:
+    def test_pruning_in_post_process_is_reflected_in_the_same_iteration(self, tmp_path):
+        """
+        `db_valid` is derived from `db_total`, but it used to be derived before
+        the post-processing hook that the documentation offers for pruning the
+        archive --- so a pruned design was still selected as elite and written
+        to that iteration's summary.
+        """
+        from aeroopt.optimization import (
+            OptDE, PostProcess, SettingsDE, SettingsOptimization,
+        )
+
+        problem = _grid_problem([0.0, 0.0], n_input=2)
+
+        opt = OptDE(
+            problem=problem,
+            optimization_settings=SettingsOptimization.from_values(
+                'o', population_size=6, max_iterations=1, seed=3,
+                working_directory=str(tmp_path), info_level_on_screen=0),
+            algorithm_settings=SettingsDE.from_values('a'),
+            user_func=lambda x: (True, np.array([float(np.sum(x**2))])),
+            save_result_files=False, logging=False,
+        )
+
+        class PruneBest(PostProcess):
+            """Drops whichever design is currently the best."""
+
+            def apply(self) -> None:
+                best = min(self.opt.db_total.individuals,
+                           key=lambda indi: float(indi.y[0]))
+                self.pruned_ID = best.ID
+                self.opt.db_total.delete_individual(ID=best.ID)
+
+        opt.post_process = PruneBest(opt)
+        opt.main()
+
+        pruned_ID = opt.post_process.pruned_ID
+        assert pruned_ID not in [indi.ID for indi in opt.db_valid.individuals]
+        assert pruned_ID not in [indi.ID for indi in opt.db_elite.individuals], (
+            'a pruned design was still selected as elite')
+
+
+class TestIndividualCopyRegressions:
+    def test_copying_an_individual_shares_the_problem(self, problem):
+        """
+        `copy.deepcopy` cloned the whole `Problem` behind every individual ---
+        its settings arrays and its constraint callables, once per individual,
+        on every rebuild of `db_valid`. It also froze each copy against the
+        problem as it was, and failed outright when a constraint callable held
+        something uncopyable.
+        """
+        import copy
+
+        indi = Individual(problem, x=np.array([0.5]), y=np.array([0.25]))
+        clone = copy.deepcopy(indi)
+
+        assert clone.problem is problem
+        assert clone.x is not indi.x
+        np.testing.assert_allclose(clone.x, indi.x)
+        np.testing.assert_allclose(clone.y, indi.y)
+
+    def test_a_whole_study_keeps_one_problem_object(self, tmp_path):
+        from aeroopt.optimization import OptDE, SettingsDE, SettingsOptimization
+
+        problem = _grid_problem([0.0, 0.0], n_input=2)
+
+        opt = OptDE(
+            problem=problem,
+            optimization_settings=SettingsOptimization.from_values(
+                'o', population_size=6, max_iterations=2, seed=2,
+                working_directory=str(tmp_path), info_level_on_screen=0),
+            algorithm_settings=SettingsDE.from_values('a'),
+            user_func=lambda x: (True, np.array([float(np.sum(x**2))])),
+            save_result_files=False, logging=False,
+        )
+        opt.main()
+
+        problems = {id(indi.problem) for indi in opt.db_total.individuals}
+        problems |= {id(indi.problem) for indi in opt.db_valid.individuals}
+
+        assert problems == {id(problem)}, (
+            f'{len(problems)} problem objects for one study')
+
+    def test_an_uncopyable_constraint_does_not_break_the_archive(self, settings_path):
+        """A constraint callable may hold a model, a handle, a lock."""
+        import copy
+        import threading
+
+        sd = SettingsData("default", fname_settings=settings_path)
+        sp = SettingsProblem("default", sd, fname_settings=settings_path)
+        prob = Problem(sd, sp)
+
+        class _LockingConstraint:
+            def __init__(self):
+                self.lock = threading.Lock()
+
+            def __call__(self, x, y):
+                return 0.0
+
+        sp.constraint_functions = [_LockingConstraint()]
+
+        db = Database(prob, database_type='total')
+        db.add_individual(Individual(prob, x=np.array([0.5]), y=np.array([0.25])),
+                          print_warning_info=False)
+
+        other = Database(prob, database_type='valid')
+        other.copy_from_database(db, deepcopy=True)
+
+        assert other.size == 1
+        assert copy.deepcopy(db.individuals[0]).problem is prob
 
 
 class TestAnalyzeDatabaseRegressions:

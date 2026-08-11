@@ -11,6 +11,14 @@ import numpy as np
 from aeroopt.core import Database, Individual, Problem
 
 
+#* How many times an operator re-draws when the design it produced is one the
+#* candidate set already holds. Duplicates are common once the population
+#* converges, and unavoidable on a coarse precision grid where distinct trial
+#* vectors land on the same point; without a retry the generation just comes out
+#* smaller than `population_size`, which weakens the search silently.
+MAX_CANDIDATE_ATTEMPTS = 8
+
+
 def sbx_crossover(
         x1: np.ndarray, x2: np.ndarray, problem: Problem,
         cross_rate: float = 1.0, pow_sbx: float = 20.0,
@@ -216,7 +224,11 @@ def fill_candidates_by_sbx_and_mutation(
     each pair produces two children by simulated binary crossover followed by
     independent polynomial mutation. `db_candidate` is emptied first and never
     grows past `population_size`; duplicated or out-of-bounds children are
-    rejected by `Database.add_individual`, so the result may be smaller.
+    rejected by `Database.add_individual`.
+
+    When that leaves the generation short, further pairs are drawn to top it up.
+    The first pass is unchanged, so a run in which nothing is rejected draws
+    exactly the same random numbers as before.
 
     Parameters:
     -----------
@@ -246,10 +258,7 @@ def fill_candidates_by_sbx_and_mutation(
 
     n_pairs = int(np.ceil(population_size / 2))
 
-    for i in range(n_pairs):
-        parent_1 = mating_population[2 * i]
-        parent_2 = mating_population[min(2 * i + 1, population_size - 1)]
-
+    def breed_and_add(parent_1: Individual, parent_2: Individual) -> None:
         child_x1, child_x2 = sbx_crossover(
             parent_1.x, parent_2.x, problem=problem,
             cross_rate=cross_rate, pow_sbx=pow_sbx, rng=rng)
@@ -270,6 +279,20 @@ def fill_candidates_by_sbx_and_mutation(
             db_candidate.add_individual(
                 indi, check_duplication=True, check_bounds=True,
                 deepcopy=False, print_warning_info=False)
+
+    for i in range(n_pairs):
+        if db_candidate.size >= population_size:
+            return
+
+        breed_and_add(mating_population[2 * i],
+                      mating_population[min(2 * i + 1, population_size - 1)])
+
+    for _ in range(MAX_CANDIDATE_ATTEMPTS * n_pairs):
+        if db_candidate.size >= population_size:
+            return
+
+        pair = binary_tournament_selection(pool=parents, n_select=2, rng=rng)
+        breed_and_add(pair[0], pair[1])
 
 
 def perpendicular_distance(z: np.ndarray, direction_unit: np.ndarray) -> float:

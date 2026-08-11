@@ -48,6 +48,15 @@ All comparisons happen on **scaled, direction-unified** objectives.
 Without this, an objective measured in Pascals would dominate every distance
 computation against one measured in radians.
 
+The map is affine and does **not** clip, so an evaluation outside the bounds is
+simply scaled outside :math:`[0, 1]`. How much the choice of bounds matters
+depends on the algorithm: dominance, crowding distance and NSGA-III niching all
+renormalize and are insensitive to it, whereas MOEA/D's weight vectors and
+RVEA's reference-vector angles assume the objectives span comparable fractions
+of :math:`[0, 1]`. See :ref:`output-bounds-strategy` for how to pick them, why
+the framework never clips an evaluated result, and what ``output_precision``
+does to the values every comparison sees.
+
 *Direction-unified* means maximization objectives are negated, so that in
 :meth:`~aeroopt.core.database.Database.get_unified_objectives` **smaller is
 always better**. Every algorithm downstream can therefore assume minimization.

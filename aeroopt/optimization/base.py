@@ -323,6 +323,7 @@ class OptBaseFramework(ABC):
 
             if self.post_process is not None:
                 self.post_process.apply()
+                self.derive_valid_from_total()
 
             self.select_elite_from_valid()
 
@@ -383,6 +384,7 @@ class OptBaseFramework(ABC):
 
         if self.post_process is not None:
             self.post_process.apply()
+            self.derive_valid_from_total()
 
         self.log(f"Initial population prepared: valid={self.db_valid.size}.", level=1)
 
@@ -394,12 +396,26 @@ class OptBaseFramework(ABC):
         - this is the default implementation with random sampling.
         - can be adapted to other methods, e.g., Design of Experiments, perturbation, user-defined, etc.
         - the initial individuals are stored in `db_candidate` database.
+
+        A study that resumed a database already has an initial population, so
+        none is sampled: the point of resuming is to carry on from those
+        designs, not to spend another `population_size` evaluations on a fresh
+        sample of the same space (with a fixed `seed`, on the *identical*
+        sample). Set `force_initial_population_size` to sample anyway, e.g. to
+        widen a converged archive.
         '''
         # xs = np.random.rand(self.population_size, self.problem.n_input)
         # xs = self.problem.scale_x(xs, reverse=True)
 
         if self.optimization_settings.force_initial_population_size is not None:
             population_size = self.optimization_settings.force_initial_population_size
+
+        elif self.db_total.size > 0:
+            self.db_candidate.empty_database()
+            self.log(f'Resumed {self.db_total.size} individuals; no initial sample taken. '
+                     'Set `force_initial_population_size` to sample anyway.', level=1)
+            return
+
         else:
             population_size = self.population_size
 
@@ -468,15 +484,22 @@ class OptBaseFramework(ABC):
         Evaluate the `db_candidate` database,
         then add the individuals to `db_total`.
 
-        The candidates are given run-unique IDs and snapped to the precision
-        grid first, so that what is evaluated is a legal design and its results
-        land in a working folder of its own. Both steps happen here, after the
-        pre-processing hook, so that candidates a hook added or moved are
-        covered too.
+        The candidates are snapped to the precision grid, screened against
+        everything already evaluated, and given run-unique IDs first, so that
+        what is evaluated is a legal design that has not been paid for before
+        and its results land in a working folder of its own. All three steps
+        happen here, after the pre-processing hook, so that candidates a hook
+        added or moved are covered too.
         '''
+        self._apply_precision_to_candidate_individuals()
+
+        self._drop_candidates_already_evaluated()
+
         self._assign_ID_to_candidate_individuals()
 
-        self._apply_precision_to_candidate_individuals()
+        if self.db_candidate.size <= 0:
+            self.log('No candidate left to evaluate.', level=1)
+            return
 
         t0 = time.perf_counter()
 
@@ -503,6 +526,28 @@ class OptBaseFramework(ABC):
         self.db_total.merge_with_database(
             self.db_candidate, deepcopy=True, log_func=self.log)
 
+        self.derive_valid_from_total()
+
+        n_added_total = self.db_total.size - n_previous_total
+        n_added_valid = self.db_valid.size - n_previous_valid
+
+        self.log(f'Add {n_added_total} individuals to total, updated to {self.db_total.size}.',
+                    level=1, prefix='    ')
+        self.log(f'Add {n_added_valid} individuals to valid, updated to {self.db_valid.size}.',
+                    level=1, prefix='    ')
+
+    def derive_valid_from_total(self) -> None:
+        '''
+        Rebuild `db_valid` as the feasible, successfully evaluated part of
+        `db_total`.
+
+        `db_valid` is derived, never maintained in place, because a constraint
+        can depend on an output and a post-processing hook can change what
+        counts as feasible --- or prune `db_total` outright. It is therefore
+        re-derived *after* the hook as well as after the merge; otherwise an
+        individual the hook removed would still be picked as elite and written
+        to the summary for that iteration.
+        '''
         self.db_valid.copy_from_database(self.db_total, deepcopy=True)
         self.db_valid.eliminate_invalid_individuals()
 
@@ -513,14 +558,6 @@ class OptBaseFramework(ABC):
             self.analyze_total.database = self.db_total
         if self.analyze_valid is not None:
             self.analyze_valid.database = self.db_valid
-
-        n_added_total = self.db_total.size - n_previous_total
-        n_added_valid = self.db_valid.size - n_previous_valid
-
-        self.log(f'Add {n_added_total} individuals to total, updated to {self.db_total.size}.',
-                    level=1, prefix='    ')
-        self.log(f'Add {n_added_valid} individuals to valid, updated to {self.db_valid.size}.',
-                    level=1, prefix='    ')
 
     def select_elite_from_valid(self) -> None:
         '''
@@ -596,6 +633,45 @@ class OptBaseFramework(ABC):
                      'folders from an earlier study, and a new study numbers its cases '
                      'from 1 again. Clear or move it, otherwise the run stops at the '
                      'first stale case.', level=0, prefix='!!! ')
+
+    def _drop_candidates_already_evaluated(self) -> None:
+        '''
+        Remove candidates that duplicate a design already in `db_total`.
+
+        `db_candidate` only ever checked for duplicates *within itself*: the
+        check against everything evaluated so far happened at the merge, after
+        the solver had already run. The duplicate was then discarded, so the
+        evaluation bought nothing --- on a coarse precision grid, or once the
+        population converges, that is a double-digit share of the budget.
+
+        The same scaled distance decides here as at the merge
+        (`critical_scaled_distance`), so exactly the candidates that would be
+        rejected later are the ones dropped now.
+        '''
+        if self.db_candidate.size <= 0 or self.db_total.size <= 0:
+            return
+
+        # `get_xs` is always a matrix, so the list form comes back.
+        is_duplicated, closest_index = self.db_total.check_duplication(
+            self.db_candidate.get_xs(scale=True), is_scaled_x=True)
+
+        keep = []
+        for i, indi in enumerate(self.db_candidate.individuals):
+            if is_duplicated[i]:
+                closest_ID = self.db_total.individuals[closest_index[i]].ID
+                self.log(f'Candidate #{i+1} duplicates evaluated ID '
+                         f'{closest_ID}; not evaluated again.',
+                         level=2, prefix='  - ')
+            else:
+                keep.append(indi)
+
+        n_dropped = self.db_candidate.size - len(keep)
+
+        if n_dropped > 0:
+            self.db_candidate.individuals = keep
+            self.db_candidate.update_id_list()
+            self.log(f'Skipped {n_dropped} candidates already evaluated.',
+                     level=1, prefix='    ')
 
     def _apply_precision_to_candidate_individuals(self) -> None:
         '''

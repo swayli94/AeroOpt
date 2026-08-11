@@ -39,6 +39,7 @@ from aeroopt.core import (
 from aeroopt.optimization.base import OptBaseFramework
 from aeroopt.optimization.moea import Algorithm, DominanceBasedAlgorithm
 from aeroopt.optimization.settings import SettingsNRBO, SettingsOptimization
+from aeroopt.optimization.utils import MAX_CANDIDATE_ATTEMPTS
 
 
 class NRBO(Algorithm):
@@ -200,54 +201,81 @@ class NRBO(Algorithm):
         delta = (1.0 - (2.0 * float(iteration)) / max(float(max_iterations), 1.0)) ** 5
 
         db_candidate.empty_database()
-        problem = db_candidate.problem
 
         for i in range(n_pop):
-            if n_pop >= 3:
-                idx = np.arange(n_pop, dtype=int)
-                idx = idx[idx != i]
-                r1, r2 = rng.choice(idx, size=2, replace=False)
-                x_r1 = X[int(r1)]
-                x_r2 = X[int(r2)]
-            else:
-                x_r1 = x_best
-                x_r2 = x_worst
 
-            a, b = rng.random(2)
-            rho = a * (x_best - X[i]) + b * (x_r1 - x_r2)
-            x1, x2 = NRBO._search_rule(
-                x_best=x_best, x_worst=x_worst, x_now=X[i], rho=rho, rng=rng)
+            # A candidate that duplicates one already generated is re-drawn
+            # instead of costing this slot its offspring.
+            for _attempt in range(MAX_CANDIDATE_ATTEMPTS):
 
-            x3 = X[i] - delta * (x2 - x1)
-            r = float(rng.random())
-            x_new : np.ndarray = r * (r * x1 + (1.0 - r) * x2) + (1.0 - r) * x3
+                added = NRBO._add_one_candidate(
+                    db_candidate, X, i, n_pop, x_best, x_worst, delta,
+                    deciding_factor, iteration, rng)
 
-            # Apply the Trap Avoidance Operator (TAO)
-            # Adding a random perturbation to avoid getting trapped in a local optimum
-            if float(rng.random()) < float(deciding_factor):
-                theta1 = float(rng.uniform(-1.0, 1.0))
-                theta2 = float(rng.uniform(-0.5, 0.5))
-                beta = 0.0 if float(rng.random()) > 0.5 else 1.0
-                u1 = beta * 3.0 * float(rng.random()) + (1.0 - beta)
-                u2 = beta * float(rng.random()) + (1.0 - beta)
-                tmp : np.ndarray = (
-                    theta1 * (u1 * x_best - u2 * X[i])
-                    + theta2 * delta * (u1 * float(np.mean(X[i])) - u2 * X[i])
-                )
-                x_new = x_new + tmp if u1 < 0.5 else x_best + tmp
+                if added:
+                    break
 
-            problem.apply_bounds_x(x_new)
-            problem.apply_precision_x(x_new)
-            indi = Individual(problem=problem, x=x_new)
-            indi.source = 'evolutionary_operator'
-            indi.generation = int(iteration)
-            db_candidate.add_individual(
-                indi,
-                check_duplication=True,
-                check_bounds=True,
-                deepcopy=False,
-                print_warning_info=False,
+    @staticmethod
+    def _add_one_candidate(
+            db_candidate: Database, X: np.ndarray, i: int, n_pop: int,
+            x_best: np.ndarray, x_worst: np.ndarray, delta: float,
+            deciding_factor: float, iteration: int,
+            rng: np.random.Generator) -> bool:
+        '''
+        Draw one NRBO candidate for slot `i` and try to add it.
+
+        Returns whether it was accepted; a rejected draw is a duplicate of a
+        candidate already generated this iteration.
+        '''
+        problem = db_candidate.problem
+
+        if n_pop >= 3:
+            idx = np.arange(n_pop, dtype=int)
+            idx = idx[idx != i]
+            r1, r2 = rng.choice(idx, size=2, replace=False)
+            x_r1 = X[int(r1)]
+            x_r2 = X[int(r2)]
+        else:
+            x_r1 = x_best
+            x_r2 = x_worst
+
+        a, b = rng.random(2)
+        rho = a * (x_best - X[i]) + b * (x_r1 - x_r2)
+        x1, x2 = NRBO._search_rule(
+            x_best=x_best, x_worst=x_worst, x_now=X[i], rho=rho, rng=rng)
+
+        x3 = X[i] - delta * (x2 - x1)
+        r = float(rng.random())
+        x_new : np.ndarray = r * (r * x1 + (1.0 - r) * x2) + (1.0 - r) * x3
+
+        # Apply the Trap Avoidance Operator (TAO)
+        # Adding a random perturbation to avoid getting trapped in a local optimum
+        if float(rng.random()) < float(deciding_factor):
+            theta1 = float(rng.uniform(-1.0, 1.0))
+            theta2 = float(rng.uniform(-0.5, 0.5))
+            beta = 0.0 if float(rng.random()) > 0.5 else 1.0
+            u1 = beta * 3.0 * float(rng.random()) + (1.0 - beta)
+            u2 = beta * float(rng.random()) + (1.0 - beta)
+            tmp : np.ndarray = (
+                theta1 * (u1 * x_best - u2 * X[i])
+                + theta2 * delta * (u1 * float(np.mean(X[i])) - u2 * X[i])
             )
+            x_new = x_new + tmp if u1 < 0.5 else x_best + tmp
+
+        problem.apply_bounds_x(x_new)
+        problem.apply_precision_x(x_new)
+        indi = Individual(problem=problem, x=x_new)
+        indi.source = 'evolutionary_operator'
+        indi.generation = int(iteration)
+        added, _ = db_candidate.add_individual(
+            indi,
+            check_duplication=True,
+            check_bounds=True,
+            deepcopy=False,
+            print_warning_info=False,
+        )
+
+        return added
 
 
 class OptNRBO(OptBaseFramework):
