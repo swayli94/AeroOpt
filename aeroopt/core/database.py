@@ -800,8 +800,9 @@ class Database:
             indi.problem = sub_problem
             indi.name_problem = sub_problem.name
 
-            indi.x = indi.x[ix].copy()
-            indi._scaled_x = sub_problem.scale_x(indi.x)
+            # `update_x` scales against `indi.problem`, which is the sub-problem
+            # by the time it is called.
+            indi.update_x(indi.x[ix].copy())
 
             if indi.is_evaluated:
                 indi.y = indi.y[iy].copy()

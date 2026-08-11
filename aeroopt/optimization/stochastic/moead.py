@@ -104,13 +104,13 @@ class MOEAD(Algorithm):
             mut_rate: float = 1.0,
             pow_poly: float = 20.0,
             rng: np.random.Generator | None = None,
-            pending_list: List[Tuple[int, int]] | None = None,
+            pending_list: List[Tuple[int, Individual]] | None = None,
             ) -> None:
         '''
         Generate one offspring per subproblem in random order (MOEA/D parallel
         offspring scheme): SBX crossover between parents from neighborhood or
         global pool, then polynomial mutation. Clears `db_candidate` and appends
-        `(subproblem_index, offspring_ID)` to `pending_list` for neighbor
+        `(subproblem_index, offspring)` to `pending_list` for neighbor
         replacement after evaluation. `decomposition_method`, `pbi_theta`, and
         `ideal` are accepted for API symmetry; this routine does not use them.
 
@@ -148,9 +148,13 @@ class MOEAD(Algorithm):
             Polynomial power.
         rng: np.random.Generator
             Random number generator.
-        pending_list: List[Tuple[int, int]]
-            List of (subproblem_index, offspring_ID) to be replaced.
+        pending_list: List[Tuple[int, Individual]]
+            List of (subproblem_index, offspring) to be replaced.
             Cleared and refilled in place; a new list is used when None.
+            The offspring is queued as the individual itself, not as its ID:
+            the driver renumbers `db_candidate` before evaluation, so an ID
+            recorded here would point at a different design by the time the
+            replacement runs.
         '''
         _ = decomposition_method, pbi_theta, ideal
 
@@ -201,7 +205,7 @@ class MOEAD(Algorithm):
                 deepcopy=False, print_warning_info=False)
             if not added:
                 continue
-            pending_list.append((int(k), int(indi.ID)))
+            pending_list.append((int(k), indi))
 
     @staticmethod
     def neighbor_indices(ref_dirs: np.ndarray, n_neighbors: int) -> np.ndarray:
@@ -341,7 +345,7 @@ class OptMOEAD(OptGeneticFramework):
 
         self._ideal: Optional[np.ndarray] = None
         self._slot_ids: Optional[np.ndarray] = None
-        self._pending: List[Tuple[int, int]] = []
+        self._pending: List[Tuple[int, Individual]] = []
 
     def main(self) -> None:
         '''
@@ -444,16 +448,18 @@ class OptMOEAD(OptGeneticFramework):
 
     def _apply_pending_replacements(self) -> None:
         '''
-        For each `(k, offspring_id)` in `pending` (same order as generation),
+        For each `(k, offspring)` in `pending` (same order as generation),
         update the ideal point from the offspring objectives and run neighbor
-        replacement for subproblem `k`. Skip entries whose ID is missing from
-        `db` or lacks a valid evaluation (e.g. infeasible offspring).
+        replacement for subproblem `k`. Skip entries that are missing from
+        `db_valid` or lack a valid evaluation (e.g. infeasible offspring).
         '''
         if self._ideal is None:
             raise ValueError("Ideal point is not initialized.")
 
-        for k, offspring_id in self._pending:
-            offspring_id = int(offspring_id)
+        for k, offspring in self._pending:
+            # The queued individual carries the ID assigned just before its
+            # evaluation, which is the ID it keeps in `db_total` / `db_valid`.
+            offspring_id = int(offspring.ID)
             try:
                 index_offspring = self.db_valid.get_index_from_ID(offspring_id)
             except ValueError:

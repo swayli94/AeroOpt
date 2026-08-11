@@ -1,6 +1,71 @@
 Changelog
 =========
 
+0.2.1
+-----
+
+Correctness fixes for external evaluation: working folders are no longer reused
+between iterations, a stale folder is reported instead of silently read back,
+and the input precision grid now holds for every design that reaches the solver.
+
+Fixed
+^^^^^
+
+* **External working folders were reused every iteration.** A candidate is
+  evaluated in ``Calculation/<ID>``, but ``db_candidate`` is emptied and
+  refilled each iteration, so its IDs restarted at 1 every time. From the first
+  iteration on, every candidate found the initial population's ``input.txt``
+  already in place, skipped the solver, and read back the *previous* design's
+  ``output.txt``. The wrong ``y`` was then stored against the new ``x`` --- and
+  since the two designs really are different, the duplicate check let it into
+  ``db_total``. Candidates are now numbered uniquely for the whole run
+  (:meth:`~aeroopt.optimization.base.OptBaseFramework._assign_ID_to_candidate_individuals`
+  was written for this but never called), from a counter that only moves
+  forward, so a candidate rejected as a duplicate cannot hand its number to a
+  later design. A case now also keeps the same ID in ``Calculation/``, in
+  ``db-total.json`` and in the log.
+* **A stale case folder is now an error, not a silent result.**
+  ``Problem.external_run`` skipped the solver whenever ``input.txt`` existed. It
+  now compares the recorded design with the requested one and raises
+  :class:`~aeroopt.core.StaleCaseFolderError` when they differ --- the case
+  belongs to an earlier study, whether because a new study numbers from 1 again
+  or because a re-parameterization changed what the variable names mean. Set
+  ``problem.rerun_stale_cases = True`` to re-prepare and re-run such folders
+  instead. Matching folders are still skipped, so restarting an interrupted
+  study is unchanged. A driver about to run into a populated ``Calculation``
+  folder says so before spending any solver time.
+* **The pre-processing feasibility check reused its folders too.** Its cases are
+  numbered from 1 on every call, so ``Calculation/PreProcess/<n>`` collided
+  across iterations; the names are now prefixed with the iteration.
+* **Offspring ignored** ``input_precision``. It was applied only by
+  ``scale_x``, i.e. to the initial sample. Every trial vector from SBX,
+  polynomial mutation, DE and NRBO was continuous, so a variable declared as
+  integer-like reached the solver as a fraction --- with binomial crossover, on
+  roughly ``cross_rate`` of all candidates, which is most of a DE generation.
+  The operators now call the new :meth:`~aeroopt.core.Problem.apply_precision_x`
+  after applying the bounds, and the driver snaps ``db_candidate`` once more
+  before evaluating, which also covers candidates a pre-processing hook
+  produced.
+* ``Problem.latin_hypercube_sampling(sample_variables=[...])`` scaled the named
+  variables by hand and skipped the precision grid that the whole-vector path
+  applies through ``scale_x``.
+* **MOEA/D rebound its subproblem slots to the wrong designs.** The neighbour
+  replacement queued ``(subproblem, offspring_ID)`` during generation and
+  resolved the ID after evaluation, but the ID an offspring carries at
+  generation time is not the one it ends up with. The queue now holds the
+  individual itself.
+
+Changed
+^^^^^^^
+
+* ``MOEAD.generate_candidate_individuals`` fills ``pending_list`` with
+  ``(subproblem_index, Individual)`` instead of ``(subproblem_index, ID)``.
+* :class:`~aeroopt.core.Problem` gained ``rerun_stale_cases`` (default False)
+  and :meth:`~aeroopt.core.Problem.apply_precision_x`;
+  :class:`~aeroopt.core.Individual` gained
+  :meth:`~aeroopt.core.Individual.update_x`, which replaces ``x`` and refreshes
+  the cached ``scaled_x`` that the duplicate check reads.
+
 0.2.0
 -----
 

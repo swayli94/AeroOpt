@@ -92,6 +92,22 @@ class Individual:
         '''
         return self.y.size > 0
 
+    def update_x(self, x: np.ndarray) -> None:
+        '''
+        Replace the input vector and refresh the cached scaled input.
+
+        `scaled_x` is cached at construction and drives duplication checks,
+        crowding and every distance in the analysis layer. Assigning `x`
+        directly leaves that cache describing the previous design.
+
+        Parameters:
+        -----------
+        x: np.ndarray [n_input]
+            New input vector.
+        '''
+        self.x = np.asarray(x, dtype=float)
+        self._scaled_x = self.problem.scale_x(self.x)
+
     def __repr__(self):
         return f"indi-{self.ID}"
 

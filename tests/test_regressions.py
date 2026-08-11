@@ -12,7 +12,10 @@ import numpy as np
 import pytest
 
 from aeroopt.analysis.analyze_database import AnalyzeDatabase
-from aeroopt.core import Database, Individual, Problem, SettingsData, SettingsProblem
+from aeroopt.core import (
+    Database, Individual, Problem, SettingsData, SettingsProblem,
+    StaleCaseFolderError,
+)
 
 
 @pytest.fixture(scope="module")
@@ -314,6 +317,428 @@ class TestIndividualRegressions:
         np.testing.assert_allclose(indi.objectives, np.zeros(problem.n_objective))
 
 
+def _grid_problem(precision, low=None, upp=None, n_input=3, n_output=1):
+    """A problem whose input variables live on a precision grid."""
+    sd = SettingsData.from_values(
+        'grid',
+        name_input=[f'x{i + 1}' for i in range(n_input)],
+        input_low=[0.0] * n_input if low is None else low,
+        input_upp=[1.0] * n_input if upp is None else upp,
+        input_precision=precision,
+        name_output=[f'y{i + 1}' for i in range(n_output)],
+        output_low=[-1.0e3] * n_output, output_upp=[1.0e3] * n_output,
+        output_precision=[0.0] * n_output,
+        critical_scaled_distance=1.0e-8,
+    )
+    sp = SettingsProblem.from_values('grid', sd, output_type=[-1] * n_output,
+                                     constraint_strings=[])
+    return Problem(sd, sp)
+
+
+def _is_on_grid(xs, precision) -> bool:
+    xs = np.atleast_2d(np.asarray(xs, dtype=float))
+    precision = np.asarray(precision, dtype=float)
+    mask = precision != 0
+    if not np.any(mask):
+        return True
+    residual = xs[:, mask] / precision[mask]
+    return bool(np.allclose(residual, np.round(residual), atol=1e-9))
+
+
+class TestInputPrecisionRegressions:
+    """
+    `input_precision` was only applied by `scale_x`, i.e. on the initial
+    sampling path. Every offspring operator returned a continuous vector, so an
+    integer-like variable (a rib count, an even ply number) reached the external
+    solver as a fraction and the evaluation failed before it started --- for a
+    binomial-crossover operator, on roughly `cross_rate` of all candidates.
+    """
+
+    PRECISION = [1.0, 0.1, 0.0]
+
+    def test_de_trial_vectors_stay_on_the_precision_grid(self):
+        from aeroopt.optimization.stochastic.de import DiffEvolution
+
+        problem = _grid_problem(self.PRECISION, low=[2.0, 0.0, 0.0],
+                                upp=[12.0, 1.0, 1.0])
+        rng = np.random.default_rng(3)
+
+        db = Database(problem, database_type='total')
+        for x in problem.latin_hypercube_sampling(8, seed=3):
+            db.add_individual(Individual(problem, x=x, y=np.array([float(np.sum(x))])),
+                              print_warning_info=False)
+
+        db_candidate = Database(problem, database_type='population')
+        DiffEvolution.generate_candidate_individuals(
+            db, db_candidate, population_size=8, iteration=1, rng=rng)
+
+        assert db_candidate.size > 0
+        assert _is_on_grid(db_candidate.get_xs(), self.PRECISION)
+
+    def test_sbx_and_mutation_stay_on_the_precision_grid(self):
+        from aeroopt.optimization.utils import polynomial_mutation, sbx_crossover
+
+        problem = _grid_problem(self.PRECISION, low=[2.0, 0.0, 0.0],
+                                upp=[12.0, 1.0, 1.0])
+        rng = np.random.default_rng(5)
+
+        x1 = np.array([3.0, 0.2, 0.31])
+        x2 = np.array([9.0, 0.7, 0.82])
+
+        for _ in range(20):
+            child1, child2 = sbx_crossover(x1, x2, problem, cross_rate=1.0, rng=rng)
+            mutated = polynomial_mutation(child1, problem, mut_rate=1.0, rng=rng)
+
+            assert _is_on_grid(child1, self.PRECISION)
+            assert _is_on_grid(child2, self.PRECISION)
+            assert _is_on_grid(mutated, self.PRECISION)
+
+    def test_nrbo_candidates_stay_on_the_precision_grid(self):
+        from aeroopt.optimization.stochastic.nrbo import NRBO
+
+        problem = _grid_problem(self.PRECISION, low=[2.0, 0.0, 0.0],
+                                upp=[12.0, 1.0, 1.0])
+        rng = np.random.default_rng(11)
+
+        db = Database(problem, database_type='total')
+        for x in problem.latin_hypercube_sampling(8, seed=11):
+            db.add_individual(Individual(problem, x=x, y=np.array([float(np.sum(x))])),
+                              print_warning_info=False)
+
+        db_candidate = Database(problem, database_type='population')
+        NRBO.generate_candidate_individuals(
+            db, db_candidate, population_size=8, iteration=1,
+            max_iterations=5, rng=rng)
+
+        assert db_candidate.size > 0
+        assert _is_on_grid(db_candidate.get_xs(), self.PRECISION)
+
+    def test_driver_snaps_candidates_injected_by_a_hook(self, tmp_path):
+        """
+        The operators snap their own output, so the driver's safety net is what
+        covers candidates that arrive another way: a pre-processing hook, a
+        user-defined injection, or a new algorithm whose author forgot.
+        """
+        from aeroopt.optimization import OptDE, SettingsDE, SettingsOptimization
+
+        problem = _grid_problem(self.PRECISION, low=[2.0, 0.0, 0.0],
+                                upp=[12.0, 1.0, 1.0])
+        evaluated = []
+
+        def user_func(x):
+            evaluated.append(x.copy())
+            return True, np.array([float(np.sum(x))])
+
+        opt = OptDE(
+            problem=problem,
+            optimization_settings=SettingsOptimization.from_values(
+                'o', population_size=4, max_iterations=0,
+                working_directory=str(tmp_path), seed=1,
+                info_level_on_screen=0),
+            algorithm_settings=SettingsDE.from_values('a'),
+            user_func=user_func, save_result_files=False, logging=False,
+        )
+
+        opt.db_candidate.add_individual(
+            Individual(problem, x=np.array([4.7, 0.34, 0.5])),
+            print_warning_info=False)
+
+        opt.evaluate_db_candidate()
+
+        np.testing.assert_allclose(evaluated[0], [5.0, 0.3, 0.5])
+        np.testing.assert_allclose(opt.db_candidate.individuals[0].x, [5.0, 0.3, 0.5])
+
+    def test_sampling_a_subset_of_variables_stays_on_the_grid(self):
+        """
+        `latin_hypercube_sampling` snaps to the grid through `scale_x` when it
+        samples the whole vector, but the named-subset path scaled the values by
+        hand and skipped it.
+        """
+        problem = _grid_problem(self.PRECISION, low=[2.0, 0.0, 0.0],
+                                upp=[12.0, 1.0, 1.0])
+
+        samples = problem.latin_hypercube_sampling(
+            6, sample_variables=['x1', 'x2'], seed=2)
+
+        assert _is_on_grid(samples, self.PRECISION[:2])
+
+    def test_update_x_refreshes_the_scaled_input(self, problem):
+        """`scaled_x` is cached, and duplication checks read it."""
+        indi = Individual(problem, x=np.array([0.25]))
+        indi.update_x(np.array([0.75]))
+
+        np.testing.assert_allclose(indi.x, [0.75])
+        np.testing.assert_allclose(indi.scaled_x, problem.scale_x(np.array([0.75])))
+
+
+class TestCandidateFolderReuseRegressions:
+    """
+    An external evaluation runs in `Calculation/<candidate ID>`, and
+    `db_candidate` is emptied and refilled every iteration, so its IDs restarted
+    at 1 in each one. From iteration 1 on, every candidate found the previous
+    generation's `input.txt` already in place, skipped the solver and read back
+    the *previous* design's `output.txt` --- results silently attached to the
+    wrong `x`, which no downstream check can detect.
+    """
+
+    def _run_two_iterations(self, tmp_path):
+        from aeroopt.optimization import OptDE, SettingsDE, SettingsOptimization
+
+        problem = _grid_problem([0.0, 0.0, 0.0])
+
+        opt = OptDE(
+            problem=problem,
+            optimization_settings=SettingsOptimization.from_values(
+                'o', population_size=5, max_iterations=2,
+                working_directory=str(tmp_path), seed=4,
+                info_level_on_screen=0),
+            algorithm_settings=SettingsDE.from_values('a'),
+            user_func=lambda x: (True, np.array([float(np.sum(x**2))])),
+            save_result_files=False, logging=False,
+        )
+
+        folders_per_iteration = []
+        original = Database.evaluate_individuals
+
+        def _record(self, *args, **kwargs):
+            folders_per_iteration.append([indi.ID for indi in self.individuals])
+            return original(self, *args, **kwargs)
+
+        Database.evaluate_individuals = _record
+        try:
+            opt.main()
+        finally:
+            Database.evaluate_individuals = original
+
+        return opt, folders_per_iteration
+
+    def test_working_folder_names_are_never_reused(self, tmp_path):
+        _opt, folders_per_iteration = self._run_two_iterations(tmp_path)
+
+        assert len(folders_per_iteration) == 3, 'expected one initial population and two iterations'
+
+        used = [ID for folders in folders_per_iteration for ID in folders]
+        assert len(used) == len(set(used)), (
+            f'a working folder was reused across iterations: {folders_per_iteration}')
+
+    def test_evaluated_folder_name_matches_the_stored_individual(self, tmp_path):
+        """The ID a case was evaluated under is the ID it keeps in `db_total`."""
+        opt, folders_per_iteration = self._run_two_iterations(tmp_path)
+
+        evaluated_ids = {ID for folders in folders_per_iteration for ID in folders}
+        for indi in opt.db_total.individuals:
+            assert indi.ID in evaluated_ids, (
+                f'individual {indi.ID} was renumbered away from its working folder')
+
+    @pytest.mark.skipif(platform.system() == 'Windows',
+                        reason='the shell script variant is POSIX only')
+    def test_external_study_records_each_result_against_its_own_design(self, tmp_path):
+        """
+        The end-to-end shape of the bug: run two iterations against a real
+        external solver and check every stored `y` against the `x` its own case
+        folder was run with. Before the fix, iteration 1 re-read iteration 0's
+        outputs and stored them against the new designs.
+        """
+        from aeroopt.optimization import OptDE, SettingsDE, SettingsOptimization
+
+        runfiles = tmp_path / 'Runfiles'
+        runfiles.mkdir()
+        (runfiles / 'run.sh').write_text(
+            "#!/bin/sh\n"
+            "awk '{s += $2} END {printf \"y1 %.9f\\n\", s}' input.txt > output.txt\n",
+            encoding='utf-8',
+        )
+
+        problem = _grid_problem([0.0, 0.0], n_input=2)
+        problem.calculation_folder = str(tmp_path / 'Calculation')
+        problem.runfiles_folder = str(runfiles)
+
+        opt = OptDE(
+            problem=problem,
+            optimization_settings=SettingsOptimization.from_values(
+                'o', population_size=4, max_iterations=2, seed=9,
+                working_directory=str(tmp_path), info_level_on_screen=0),
+            algorithm_settings=SettingsDE.from_values('a'),
+            user_func=None, save_result_files=False, logging=False,
+        )
+        opt.main()
+
+        assert opt.db_total.size >= 8
+
+        for indi in opt.db_total.individuals:
+            case_dir = tmp_path / 'Calculation' / str(indi.ID)
+            assert case_dir.is_dir(), f'no working folder for ID {indi.ID}'
+
+            succeed, x_of_case = problem.read_input(str(case_dir / 'input.txt'))
+            assert succeed
+            np.testing.assert_allclose(
+                x_of_case, indi.x, atol=1e-9,
+                err_msg=f'ID {indi.ID} was evaluated with a different design')
+
+            # The solver sums the inputs, so the stored y pins x to y directly.
+            np.testing.assert_allclose(indi.y, [float(np.sum(indi.x))], atol=1e-8)
+
+    def test_ids_are_not_reused_after_a_duplicate_is_rejected(self, problem, tmp_path):
+        """
+        `db_total.get_largest_ID() + 1` is not a safe allocator on its own: a
+        candidate rejected as a duplicate never reaches `db_total`, so the next
+        iteration would hand its ID --- and its working folder --- to a
+        different design.
+        """
+        from aeroopt.optimization import OptDE, SettingsDE, SettingsOptimization
+
+        opt = OptDE(
+            problem=problem,
+            optimization_settings=SettingsOptimization.from_values(
+                'o', population_size=2, max_iterations=0,
+                working_directory=str(tmp_path), info_level_on_screen=0),
+            algorithm_settings=SettingsDE.from_values('a'),
+            user_func=lambda x: (True, np.array([float(x[0])])),
+            save_result_files=False, logging=False,
+        )
+
+        for x in (0.2, 0.4):
+            opt.db_candidate.add_individual(Individual(problem, x=np.array([x])),
+                                            print_warning_info=False)
+        opt.evaluate_db_candidate()
+        first_ids = [indi.ID for indi in opt.db_candidate.individuals]
+
+        # Only the first survives the merge; the second duplicates it.
+        opt.db_candidate.individuals[1].update_x(np.array([0.2]))
+        opt.update_total_and_valid_with_candidate()
+        assert opt.db_total.size == 1
+
+        opt.db_candidate.empty_database()
+        opt.db_candidate.add_individual(Individual(problem, x=np.array([0.8])),
+                                        print_warning_info=False)
+        opt.evaluate_db_candidate()
+
+        assert opt.db_candidate.individuals[0].ID not in first_ids
+
+
+class TestExternalRunStaleFolderRegressions:
+    """
+    `external_run` skipped the solver whenever the case folder already held an
+    input file, so a folder left by an earlier study --- or by the same study
+    before a re-parameterization --- handed back that study's output for a
+    completely different `x`, with nothing downstream able to notice.
+    """
+
+    def _prepare_case(self, tmp_path, x_recorded, y_recorded):
+        case_dir = tmp_path / 'Calculation' / 'case_1'
+        case_dir.mkdir(parents=True)
+        (case_dir / 'input.txt').write_text(f'  x  {x_recorded:.9f}\n', encoding='utf-8')
+        (case_dir / 'output.txt').write_text(f'  y  {y_recorded:.9f}\n', encoding='utf-8')
+        return case_dir
+
+    def _use_folders(self, problem, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        problem.calculation_folder = 'Calculation'
+        problem.runfiles_folder = 'Runfiles'
+
+    def test_matching_input_file_is_reused_without_rerunning(self, problem, tmp_path,
+                                                             monkeypatch):
+        """The restart behaviour this shortcut exists for must keep working."""
+        self._prepare_case(tmp_path, x_recorded=0.25, y_recorded=7.0)
+        # The run-files folder is absent, so a re-run could not have succeeded.
+        self._use_folders(problem, tmp_path, monkeypatch)
+
+        succeed, y = problem.external_run('case_1', np.array([0.25]),
+                                          information=False)
+
+        assert succeed is True
+        np.testing.assert_allclose(y, [7.0])
+
+    def test_stale_input_file_raises(self, problem, tmp_path, monkeypatch):
+        case_dir = self._prepare_case(tmp_path, x_recorded=0.25, y_recorded=7.0)
+        self._use_folders(problem, tmp_path, monkeypatch)
+
+        with pytest.raises(StaleCaseFolderError) as excinfo:
+            problem.external_run('case_1', np.array([0.75]), information=False)
+
+        message = str(excinfo.value)
+        assert 'case_1' in message
+        assert 'Calculation' in message, 'the message must say what to clear'
+        assert (case_dir / 'output.txt').exists(), 'the old result was destroyed'
+
+    def test_input_file_of_a_renamed_variable_raises(self, problem, tmp_path,
+                                                     monkeypatch):
+        """
+        A re-parameterization keeps the folder but changes what is in it. An
+        input file that does not hold every current variable is not evidence of
+        a prepared case.
+        """
+        case_dir = tmp_path / 'Calculation' / 'case_1'
+        case_dir.mkdir(parents=True)
+        (case_dir / 'input.txt').write_text('  x_old  0.250000000\n', encoding='utf-8')
+        (case_dir / 'output.txt').write_text('  y  7.0\n', encoding='utf-8')
+        self._use_folders(problem, tmp_path, monkeypatch)
+
+        with pytest.raises(StaleCaseFolderError):
+            problem.external_run('case_1', np.array([0.25]), information=False)
+
+    @pytest.mark.skipif(platform.system() == 'Windows',
+                        reason='the shell script variant is POSIX only')
+    def test_rerun_stale_cases_re_prepares_the_folder(self, problem, tmp_path,
+                                                      monkeypatch):
+        runfiles = tmp_path / 'Runfiles'
+        runfiles.mkdir()
+        (runfiles / 'run.sh').write_text(
+            "#!/bin/sh\n"
+            "x=$(awk '{print $2}' input.txt)\n"
+            "echo \"y $x\" > output.txt\n",
+            encoding='utf-8',
+        )
+        case_dir = self._prepare_case(tmp_path, x_recorded=0.25, y_recorded=7.0)
+        self._use_folders(problem, tmp_path, monkeypatch)
+        problem.rerun_stale_cases = True
+
+        succeed, y = problem.external_run('case_1', np.array([0.75]),
+                                          information=False)
+
+        assert succeed is True
+        np.testing.assert_allclose(y, [0.75], atol=1e-9)
+        assert '0.75' in (case_dir / 'input.txt').read_text(encoding='utf-8')
+
+    def test_stale_output_is_not_returned_when_the_rerun_fails(self, problem, tmp_path,
+                                                               monkeypatch):
+        """A folder with no run script cannot produce a new result; the old one
+        must not stand in for it."""
+        case_dir = self._prepare_case(tmp_path, x_recorded=0.25, y_recorded=7.0)
+        self._use_folders(problem, tmp_path, monkeypatch)
+        problem.rerun_stale_cases = True
+
+        succeed, _ = problem.external_run('case_1', np.array([0.75]),
+                                          information=False)
+
+        assert succeed is False
+        assert not (case_dir / 'output.txt').exists()
+
+    def test_driver_warns_before_running_into_an_old_calculation_folder(
+            self, problem, tmp_path, monkeypatch):
+        """The hint must come before any solver time is spent."""
+        from aeroopt.optimization import OptDE, SettingsDE, SettingsOptimization
+
+        (tmp_path / 'Calculation' / '1').mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+        problem.calculation_folder = 'Calculation'
+
+        opt = OptDE(
+            problem=problem,
+            optimization_settings=SettingsOptimization.from_values(
+                'o', population_size=2, max_iterations=0,
+                working_directory=str(tmp_path), info_level_on_screen=0),
+            algorithm_settings=SettingsDE.from_values('a'),
+            user_func=None, save_result_files=False, logging=False,
+        )
+
+        messages = []
+        opt.log = lambda text, **kwargs: messages.append(text)
+        opt._warn_about_existing_case_folders()
+
+        assert any('already holds 1 case' in text for text in messages), messages
+
+
 class TestAnalyzeDatabaseRegressions:
     def test_handles_individuals_with_failed_evaluations(self, problem):
         """An empty `y` used to raise a broadcast error while building arrays."""
@@ -364,6 +789,52 @@ class TestAnalyzeDatabaseRegressions:
 
 
 class TestMOEADRegressions:
+    def test_pending_replacements_point_at_the_offspring(self, tmp_path):
+        """
+        MOEA/D queues `(subproblem, offspring)` at generation time and applies
+        the neighbour replacement after evaluation. It used to queue the
+        offspring's *ID*, which is not stable: the driver renumbers
+        `db_candidate` before evaluation (and the merge into `db_total` used to
+        renumber it again), so the queued ID resolved to an individual of the
+        initial population and the subproblem slots were rebound to the wrong
+        designs.
+        """
+        from aeroopt.optimization import (
+            OptMOEAD, SettingsMOEAD, SettingsOptimization,
+        )
+
+        problem = _grid_problem([0.0, 0.0], n_input=2, n_output=2)
+
+        opt = OptMOEAD(
+            problem=problem,
+            optimization_settings=SettingsOptimization.from_values(
+                'o', population_size=4, max_iterations=1, seed=6,
+                working_directory=str(tmp_path), info_level_on_screen=0),
+            algorithm_settings=SettingsMOEAD.from_values('a', n_partitions=3),
+            user_func=lambda x: (True, np.array([float(np.sum(x**2)),
+                                                 float(np.sum((1.0 - x)**2))])),
+            save_result_files=False, logging=False,
+        )
+
+        opt.initialize_population()
+        opt.iteration = 1
+        opt.generate_candidate_individuals()
+
+        xs_generated = opt.db_candidate.get_xs()
+
+        opt.evaluate_db_candidate()
+        opt.update_total_and_valid_with_candidate()
+
+        assert len(opt._pending) == opt.db_candidate.size > 0
+
+        for i, (_subproblem, offspring) in enumerate(opt._pending):
+            # `getattr`: before the fix the queue held a bare ID.
+            offspring_id = getattr(offspring, 'ID', offspring)
+            index = opt.db_valid.get_index_from_ID(int(offspring_id))
+            np.testing.assert_allclose(
+                opt.db_valid.individuals[index].x, xs_generated[i],
+                err_msg='the queued entry resolves to a different design')
+
     def test_generate_candidates_has_no_mutable_default_arguments(self):
         import inspect
 

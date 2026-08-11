@@ -69,6 +69,8 @@ def sbx_crossover(
 
     problem.apply_bounds_x(child1)
     problem.apply_bounds_x(child2)
+    problem.apply_precision_x(child1)
+    problem.apply_precision_x(child2)
 
     return child1, child2
 
@@ -144,6 +146,7 @@ def polynomial_mutation(
         out[i] += deltaq * span
 
     problem.apply_bounds_x(out)
+    problem.apply_precision_x(out)
 
     return out
 

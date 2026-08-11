@@ -68,6 +68,7 @@ class DiffEvolution(Algorithm):
             trial_x = binomial_crossover(
                 x_t, mutant, cross_rate, rng)
             problem.apply_bounds_x(trial_x)
+            problem.apply_precision_x(trial_x)
 
             indi = Individual(problem=problem, x=trial_x)
             indi.source = 'evolutionary_operator'

@@ -19,6 +19,19 @@ from aeroopt.core.settings import SettingsData, SettingsProblem
 from aeroopt.sampling import latin_hypercube_sampling
 
 
+class StaleCaseFolderError(RuntimeError):
+    '''
+    An external case folder holds an input file for a different design.
+
+    Raised by :meth:`Problem.external_run`. It means the working folder belongs
+    to an earlier study (case numbering restarts at 1 for every fresh study, and
+    a re-parameterization changes what the same variable names mean), so reading
+    its output would score the previous design's results against the current
+    `x`. Clear or move the calculation folder, resume the previous study, or set
+    :attr:`Problem.rerun_stale_cases`.
+    '''
+
+
 class Problem:
     '''
     Problem for optimization.
@@ -41,6 +54,12 @@ class Problem:
     runfiles_folder: str
         Name of the folder whose contents (solver, run script, templates) are
         copied into each working folder before the external run.
+    rerun_stale_cases: bool
+        What to do when a case folder already holds an input file for a
+        *different* design. False (the default) raises
+        :class:`StaleCaseFolderError`, so leftovers from a previous study are
+        reported instead of quietly overwritten. True re-prepares and re-runs
+        the folder, discarding the old result.
     '''
     def __init__(self, data_settings: SettingsData, problem_settings: SettingsProblem):
 
@@ -52,6 +71,8 @@ class Problem:
 
         self.calculation_folder : str = 'Calculation'
         self.runfiles_folder : str = 'Runfiles'
+
+        self.rerun_stale_cases : bool = False
 
     def __eq__(self, other) -> bool:
         '''
@@ -164,9 +185,19 @@ class Problem:
         copied in, `x` is written to the input file, and the run script is
         executed with the working folder as its current directory.
 
-        An existing input file means the case was already prepared (and possibly
-        already run), so it is left alone and only the output file is read. That
-        makes an interrupted study restartable.
+        An existing input file **holding this same `x`** means the case was
+        already prepared (and possibly already run), so it is left alone and
+        only the output file is read. That makes an interrupted study
+        restartable.
+
+        An existing input file holding a *different* `x` is a **stale** folder,
+        left by an earlier study that used this name --- a fresh study numbers
+        its cases from 1 again, and a re-parameterization changes what the same
+        variable names mean. Reading that folder's output would record the old
+        design's `y` against the new `x`, a mismatch no downstream check can
+        detect, so :class:`StaleCaseFolderError` is raised instead. Clear (or
+        move) `calculation_folder` before starting a new study, or set
+        `rerun_stale_cases` to re-prepare such folders automatically.
 
         Parameters
         -----------------
@@ -190,6 +221,12 @@ class Problem:
         y: ndarray [dim_output]
             function output
 
+        Raises
+        ----------------
+        StaleCaseFolderError
+            The case folder holds an input file for a different design and
+            `rerun_stale_cases` is False.
+
         I/O files
         ----------------
         input_fname: str
@@ -204,7 +241,42 @@ class Problem:
 
         os.makedirs(folder, exist_ok=True)
 
-        if not os.path.exists(in_name):
+        is_prepared = os.path.exists(in_name)
+
+        if is_prepared:
+
+            matches, x_recorded = self._input_file_matches(in_name, x)
+
+            if not matches:
+
+                if not self.rerun_stale_cases:
+                    recorded = ('unreadable' if x_recorded is None
+                                else np.array2string(x_recorded, precision=6))
+                    raise StaleCaseFolderError(
+                        'Case folder [%s] already holds an input file for a different '
+                        'design, so its results belong to another study. Reading them '
+                        'would attach the wrong output to this candidate.\n'
+                        '  Requested x: %s\n'
+                        '  Recorded  x: %s\n'
+                        'Clear or move [%s] before starting a new study, resume the '
+                        'previous one (`resume` in the optimization settings), or set '
+                        '`problem.rerun_stale_cases = True` to re-run such folders.'
+                        % (folder, np.array2string(x, precision=6), recorded,
+                           self.calculation_folder))
+
+                if information:
+                    print('    warning: [external_run] stale case folder re-run: %s'
+                          % (folder_name))
+
+                # The stale output belongs to the previous design. Deleting it
+                # means a failed re-run is reported as a failure instead of
+                # silently returning the old `y`.
+                if os.path.exists(out_name):
+                    os.remove(out_name)
+
+                is_prepared = False
+
+        if not is_prepared:
 
             # `dirs_exist_ok` copies the *contents* of the run-files folder.
             # A plain `cp -r Runfiles folder/` would nest it as a subdirectory,
@@ -243,6 +315,36 @@ class Problem:
             print('    warning: [external_run] failed: %s'%(folder_name))
 
         return succeed, y
+
+    def _input_file_matches(self, fname: str,
+                            x: np.ndarray) -> Tuple[bool, np.ndarray | None]:
+        '''
+        Whether the input file `fname` holds the input vector `x`.
+
+        A file that cannot be read, or that misses one of the input variables
+        (as after a re-parameterization), counts as *not* matching, with `None`
+        for the recorded input.
+
+        The tolerance follows the `%20.9f` format of :meth:`write_input`, which
+        keeps nine decimals, plus a relative term for large values whose decimal
+        representation cannot resolve that many digits.
+
+        Returns
+        -------------
+        matches: bool
+            whether the file holds this same input vector.
+        x_recorded: ndarray [dim_input], or None
+            the input vector read back, None when the file could not be read.
+        '''
+        try:
+            succeed, x_recorded = self.read_input(fname)
+        except OSError:
+            return False, None
+
+        if not succeed:
+            return False, None
+
+        return bool(np.allclose(x_recorded, x, rtol=1e-8, atol=1e-9)), x_recorded
 
     def write_input(self, fname: str, x: np.ndarray) -> None:
         '''
@@ -557,14 +659,22 @@ class Problem:
                 i = self.data_settings.name_input.index(name)
                 low = self.data_settings.input_low[i]
                 upp = self.data_settings.input_upp[i]
+                precision = self.data_settings.input_precision[i]
             elif name in self.data_settings.name_output:
                 i = self.data_settings.name_output.index(name)
                 low = self.data_settings.output_low[i]
                 upp = self.data_settings.output_upp[i]
+                precision = self.data_settings.output_precision[i]
             else:
                 raise ValueError('Invalid name of variable %s.'%(name))
 
             v_samples[:, i_variable] = low + v_samples[:, i_variable] * (upp - low)
+
+            # The whole-vector path scales through `scale_x`, which snaps to the
+            # precision grid; sampling a subset must not skip that.
+            if precision != 0.0:
+                v_samples[:, i_variable] = (
+                    np.round(v_samples[:, i_variable] / precision) * precision)
 
         return v_samples
 
@@ -609,6 +719,31 @@ class Problem:
 
         within_bounds = not (np.any(mask_upper) or np.any(mask_lower))
         return within_bounds
+
+    def apply_precision_x(self, x: np.ndarray) -> None:
+        '''
+        Snap the input vector to the precision grid of each input variable (in place).
+
+        Every operator that builds a new `x` must call this after
+        :meth:`apply_bounds_x`, because `input_precision` is a *hard* property of
+        the design variable --- an integer count of ribs, a ply number that must
+        be even, a thickness the solver only accepts on a 0.1 mm grid. A value
+        off that grid is not a slightly worse design, it is one the external
+        evaluation rejects outright.
+
+        The bounds are themselves snapped to the grid when the settings are
+        checked, so snapping after clipping cannot leave `x` out of bounds.
+
+        Parameters
+        -------------
+        x: ndarray [n_input] or [:, n_input]
+            input vector, modified in place.
+
+        Returns
+        -------------
+        None
+        '''
+        SettingsData.apply_precision(x, self.data_settings.input_precision)
 
     def apply_bounds_y(self, y: np.ndarray) -> bool:
         '''

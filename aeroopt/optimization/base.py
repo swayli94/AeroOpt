@@ -141,6 +141,13 @@ class OptBaseFramework(ABC):
         self.save_result_files : bool = save_result_files
         self.logging : bool = logging
 
+        # Next ID handed to a candidate. It only ever moves forward, because an
+        # ID names the external working folder: reusing one would make the run
+        # read the previous design's results. `db_total.get_largest_ID() + 1` is
+        # not enough on its own --- a candidate rejected as a duplicate never
+        # reaches `db_total`, so its ID would be handed out a second time.
+        self._next_ID : int = 1
+
         self.rng : np.random.Generator = (
             rng if rng is not None
             else np.random.default_rng(optimization_settings.seed))
@@ -276,6 +283,7 @@ class OptBaseFramework(ABC):
         self.db_elite.empty_database()
         self.db_candidate.empty_database()
         self.iteration = 0
+        self._next_ID = 1
         self._start_time = time.perf_counter()
 
         self.log(f'Optimization [{self.name}] initialized.', level=0, prefix='=== ')
@@ -286,6 +294,8 @@ class OptBaseFramework(ABC):
         '''
         Main loop of the optimization.
         '''
+        self._warn_about_existing_case_folders()
+
         self.resume()
 
         self.initialize_population()
@@ -341,6 +351,11 @@ class OptBaseFramework(ABC):
             indi.source = 'previous_database'
 
         self.iteration = 0
+
+        # Continue numbering past the resumed database, so the new candidates do
+        # not evaluate in the working folders of the previous run.
+        self._next_ID = self.max_ID + 1
+
         self.log(f'Resume from [{fname}], size = {self.db_total.size}.', level=0)
 
     def initialize_population(self) -> None:
@@ -452,7 +467,17 @@ class OptBaseFramework(ABC):
         '''
         Evaluate the `db_candidate` database,
         then add the individuals to `db_total`.
+
+        The candidates are given run-unique IDs and snapped to the precision
+        grid first, so that what is evaluated is a legal design and its results
+        land in a working folder of its own. Both steps happen here, after the
+        pre-processing hook, so that candidates a hook added or moved are
+        covered too.
         '''
+        self._assign_ID_to_candidate_individuals()
+
+        self._apply_precision_to_candidate_individuals()
+
         t0 = time.perf_counter()
 
         self.db_candidate.evaluate_individuals(mp_evaluation=self.mp_evaluation,
@@ -521,11 +546,81 @@ class OptBaseFramework(ABC):
 
     def _assign_ID_to_candidate_individuals(self) -> None:
         '''
-        Assign new IDs to the individuals in `db_candidate`.
+        Assign IDs to the individuals in `db_candidate` that are unique for the
+        whole run.
+
+        A candidate's ID is the name of its external working folder
+        (`Calculation/<ID>`), and it is the ID the individual keeps once it is
+        merged into `db_total`. `db_candidate` is emptied and refilled every
+        iteration, so its own IDs restart at 1 each time; without this step the
+        second iteration would evaluate in the folders of the first.
         '''
-        id_max = self.max_ID + 1
+        id_next = max(self._next_ID, self.max_ID + 1)
+
         for i in range(self.db_candidate.size):
-            self.db_candidate.individuals[i].ID = id_max + i
+            self.db_candidate.individuals[i].ID = id_next + i
+
+        self._next_ID = id_next + self.db_candidate.size
+
+        self.db_candidate.update_id_list()
+
+    def _warn_about_existing_case_folders(self) -> None:
+        '''
+        Warn when the external calculation folder already holds cases.
+
+        A fresh study numbers its cases from 1 again, so those folders will be
+        hit by the new candidates. `Problem.external_run` raises on the first
+        one whose input file does not match, but that happens once the study is
+        already running --- this says it up front, while clearing the folder is
+        still cheap.
+        '''
+        if self.user_func is not None:
+            return
+
+        folder = self.problem.calculation_folder
+
+        if not os.path.isdir(folder):
+            return
+
+        n_existing = len([entry for entry in os.listdir(folder)
+                          if os.path.isdir(os.path.join(folder, entry))])
+
+        if n_existing == 0:
+            return
+
+        if self.optimization_settings.resume:
+            self.log(f'Calculation folder [{folder}] holds {n_existing} case folders; '
+                     'cases that match the resumed database are reused.', level=0)
+        else:
+            self.log(f'Calculation folder [{folder}] already holds {n_existing} case '
+                     'folders from an earlier study, and a new study numbers its cases '
+                     'from 1 again. Clear or move it, otherwise the run stops at the '
+                     'first stale case.', level=0, prefix='!!! ')
+
+    def _apply_precision_to_candidate_individuals(self) -> None:
+        '''
+        Snap every candidate's input vector to the precision grid.
+
+        The operators already do this, so this is the safety net for candidates
+        that reach `db_candidate` another way: a pre-processing hook, a
+        user-defined injection, or a new algorithm whose author forgot.
+        Evaluating an off-grid design wastes a solver run on a bridge script
+        that rejects, say, a non-integer number of ribs.
+        '''
+        n_snapped = 0
+
+        for indi in self.db_candidate.individuals:
+
+            x = indi.x.copy()
+            self.problem.apply_precision_x(x)
+
+            if not np.array_equal(x, indi.x):
+                indi.update_x(x)
+                n_snapped += 1
+
+        if n_snapped > 0:
+            self.log(f'Snapped {n_snapped} candidates to the input precision grid.',
+                     level=2, prefix='  - ')
 
 
 class OptGeneticFramework(OptBaseFramework):
@@ -712,6 +807,7 @@ class PreProcess(ABC):
                 xs_new[i] = xs[i]
 
         self.opt.problem.apply_bounds_x(xs_new)
+        self.opt.problem.apply_precision_x(xs_new)
 
         return xs_new
 
@@ -758,8 +854,12 @@ class PreProcess(ABC):
                 self.opt.log(warning_info, level=2, prefix='  - ')
 
 
+        # The local IDs restart at 1 on every call, so without a per-iteration
+        # prefix the external check of iteration 2 would run in --- and read
+        # back --- the folders of iteration 1.
         db.evaluate_individuals(mp_evaluation=self.opt.mp_evaluation,
-                                user_func=user_pre_processing_func)
+                                user_func=user_pre_processing_func,
+                                prefix_folder_name=f'iter{self.opt.iteration}-')
 
         feasibility_flags = []
         ID_list = []

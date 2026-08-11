@@ -32,6 +32,7 @@ def _make_opt(problem, optimization_settings):
     opt.pre_process = None
     opt.post_process = None
     opt.iteration = 0
+    opt._next_ID = 1
     opt.db_total = Database(problem, database_type="total")
     opt.db_valid = Database(problem, database_type="valid")
     opt.db_elite = Database(problem, database_type="elite")
@@ -172,6 +173,10 @@ class _DummyProblemForPreProcess:
     def apply_bounds_x(self, x):
         np.clip(x, self._lb, self._ub, out=x)
 
+    def apply_precision_x(self, x):
+        # No precision constraint on the dummy problem.
+        return None
+
     def check_bounds_x(self, x):
         x = np.asarray(x, dtype=float)
         return np.all(x >= self._lb) and np.all(x <= self._ub)
@@ -194,6 +199,7 @@ def _preprocess_dummy_opt(problem, analyze_valid=None, dir_save="tmp_dir"):
     opt = type("Opt", (), {})()
     opt.problem = problem
     opt.dir_save = dir_save
+    opt.iteration = 1
     opt.db_valid = type("DbV", (), {"size": 2})()
     opt.log = lambda *args, **kwargs: None
     if analyze_valid is not None:
@@ -245,7 +251,10 @@ def test_preprocess_check_feasibility_sets_calculation_folder(monkeypatch):
     opt.mp_evaluation = None
     pp = _ConcretePreProcess(opt)
 
-    def _fake_evaluate(self, mp_evaluation=None, user_func=None):
+    def _fake_evaluate(self, mp_evaluation=None, user_func=None,
+                       user_func_supports_parallel=False, prefix_folder_name=None):
+        # The prefix keeps the iterations of one study in separate folders.
+        assert prefix_folder_name == "iter1-"
         for indi in self.individuals:
             x0 = float(indi.x[0])
             indi.valid_evaluation = x0 >= 0.2

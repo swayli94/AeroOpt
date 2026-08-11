@@ -182,8 +182,16 @@ The solver's whole contract is: read `input.txt`, write `output.txt` in the same
 `name value` format. A missing file or variable is reported as a failed
 evaluation, not an exception.
 
-A case folder whose `input.txt` already exists is skipped, so an interrupted
-study restarts without recomputing finished cases.
+Case IDs are unique for the whole run, so a design keeps one `<ID>` across
+`Calculation/`, `db-total.json` and the log.
+
+A case folder whose `input.txt` already holds the **same** design is skipped, so
+an interrupted study restarts without recomputing finished cases. One holding a
+*different* design is a leftover from an earlier study (a new study numbers from
+1 again) and raises `StaleCaseFolderError` rather than returning the old
+`output.txt` for the new design — clear or move `Calculation/`, set
+`"resume": true`, or set `problem.rerun_stale_cases = True` to re-run those
+folders.
 
 ## Parallel evaluation
 

@@ -1,7 +1,7 @@
 '''
 Core functions and classes.
 '''
-from aeroopt.core.problem import Problem
+from aeroopt.core.problem import Problem, StaleCaseFolderError
 from aeroopt.core.individual import (
     Individual,
     ID_UNASSIGNED,
@@ -39,6 +39,7 @@ __all__ = [
     'REQUIRED',
     'save_settings',
     'Problem',
+    'StaleCaseFolderError',
     'Individual',
     'Database',
     'MultiProcessEvaluation',

@@ -237,6 +237,7 @@ class NRBO(Algorithm):
                 x_new = x_new + tmp if u1 < 0.5 else x_best + tmp
 
             problem.apply_bounds_x(x_new)
+            problem.apply_precision_x(x_new)
             indi = Individual(problem=problem, x=x_new)
             indi.source = 'evolutionary_operator'
             indi.generation = int(iteration)

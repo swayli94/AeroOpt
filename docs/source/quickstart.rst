@@ -37,8 +37,11 @@ and output variables:
    }
 
 ``input_precision`` snaps a variable to a grid --- useful when a design variable
-is a manufacturable quantity such as a 0.1 mm sheet thickness. Use ``0.0`` for
-continuous variables.
+is a manufacturable quantity such as a 0.1 mm sheet thickness, or an integer
+count written as a precision of ``1.0``. Use ``0.0`` for continuous variables.
+The grid holds for every design that reaches the evaluation, including the
+offspring produced by crossover and mutation, so a solver that only accepts grid
+values never sees anything else.
 
 ``critical_scaled_distance`` is the duplicate threshold: two designs closer than
 this in the scaled input space are treated as the same design, and the second is
@@ -204,8 +207,23 @@ The solver's only contract is to read ``input.txt`` and write ``output.txt`` in
 the same ``name value`` format. A missing output file, or a missing variable in
 it, is reported as a failed evaluation rather than an exception.
 
-Because a case folder is skipped when its ``input.txt`` already exists, an
-interrupted study can be restarted without recomputing finished cases.
+Case IDs are unique for the whole run, so a design keeps the same ``<ID>`` in
+``Calculation/``, in ``db-total.json`` and in the log.
+
+Because a case folder is skipped when its ``input.txt`` already holds the same
+design, an interrupted study can be restarted without recomputing finished
+cases. A folder holding a *different* design belongs to an earlier study --- a
+new study numbers its cases from 1 again, and a re-parameterization changes what
+the variable names mean --- and reading its ``output.txt`` would score the old
+result against the new design. AeroOpt raises ``StaleCaseFolderError`` instead:
+
+.. code-block:: text
+
+   Clear or move Calculation/ before starting a new study.
+
+Alternatively, resume the previous study (``"resume": true`` in the optimization
+settings), or set ``problem.rerun_stale_cases = True`` to let AeroOpt re-prepare
+and re-run such folders, discarding the old results.
 
 Running evaluations in parallel
 -------------------------------
