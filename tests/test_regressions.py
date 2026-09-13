@@ -1531,3 +1531,102 @@ class TestPackagingRegressions:
         declared = ' '.join(pyproject['project']['dependencies'])
         for package in ('numpy', 'scipy', 'scikit-learn', 'numexpr', 'pydoe', 'openpyxl'):
             assert package in declared, f'{package} is imported but not declared'
+
+
+class TestResumeRegressions:
+    """`resume()` used to carry the previous run's constraint verdicts."""
+
+    @staticmethod
+    def _settings_file(tmp_path, constraint):
+        import json
+
+        path = os.path.join(str(tmp_path), 'settings.json')
+        config = {
+            'data': {
+                'type': 'SettingsData', 'name': 'd',
+                'name_input': ['x1'], 'input_low': [0.0], 'input_upp': [1.0],
+                'input_precision': [0.0],
+                'name_output': ['mass', 'max_fi'],
+                'output_low': [-1.0, -1.0], 'output_upp': [10.0, 10.0],
+                'output_precision': [0.0, 0.0],
+                'critical_scaled_distance': 1.0e-8,
+            },
+            'problem': {
+                'type': 'SettingsProblem', 'name': 'p',
+                'name_data_settings': 'd', 'output_type': [-1, 0],
+                'constraint_strings': [constraint],
+            },
+            'opt': {
+                'type': 'SettingsOptimization', 'name': 'o',
+                'resume': True, 'population_size': 2, 'max_iterations': 1,
+                'working_directory': str(tmp_path),
+                'info_level_on_screen': 0, 'seed': 1,
+            },
+        }
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(config, f)
+        return path
+
+    def test_resume_reevaluates_constraints_against_the_current_problem(
+            self, tmp_path):
+        """A resumed study must rank designs by *its* constraints.
+
+        The resume file stores `sum_violation` and `constraint_violations`,
+        and `read_database_json` restores them verbatim. A study that loads
+        the same designs under a different constraint set --- the whole point
+        of comparing a relaxed screening loop against a strict one --- used to
+        inherit the verdicts of the run that wrote the file, with nothing in
+        the log to say so.
+        """
+        from aeroopt.optimization import OptBaseFramework, SettingsOptimization
+
+        # The file is written by a run whose failure constraint is relaxed, so
+        # a design at max_fi = 0.5 is recorded as satisfying it.
+        lax_path = self._settings_file(tmp_path, 'max_fi - 100.0')
+        lax_data = SettingsData('d', fname_settings=lax_path)
+        lax_problem = Problem(
+            lax_data, SettingsProblem('p', lax_data, fname_settings=lax_path))
+
+        written = Database(lax_problem, database_type='total')
+        indi = Individual(lax_problem, x=np.array([0.4]),
+                          y=np.array([1.0, 0.5]), ID=1)
+        indi.valid_evaluation = True
+        indi.eval_constraints()
+        written.individuals.append(indi)
+        written.update_id_list()
+
+        assert indi.sum_violation == pytest.approx(0.0)
+
+        summary = os.path.join(str(tmp_path), 'Summary')
+        os.makedirs(summary, exist_ok=True)
+        written.output_database_json(os.path.join(summary, 'db-resume.json'))
+
+        # The resuming study applies the strict limit, which that design fails.
+        strict_path = self._settings_file(tmp_path, 'max_fi - 0.2')
+        strict_data = SettingsData('d', fname_settings=strict_path)
+        strict_problem = Problem(
+            strict_data,
+            SettingsProblem('p', strict_data, fname_settings=strict_path))
+
+        class _Opt(OptBaseFramework):
+            def initialize_population(self) -> None:
+                return None
+
+            def generate_candidate_individuals(self) -> None:
+                return None
+
+            def select_elite_from_valid(self) -> None:
+                return None
+
+        opt = _Opt(
+            problem=strict_problem,
+            optimization_settings=SettingsOptimization(
+                'o', fname_settings=strict_path),
+            user_func=lambda x: (True, np.array([1.0, 0.5])),
+            logging=False, save_result_files=False,
+        )
+
+        opt.resume()
+
+        resumed = opt.db_total.individuals[0]
+        assert resumed.sum_violation == pytest.approx(0.3)

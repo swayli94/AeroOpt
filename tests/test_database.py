@@ -308,3 +308,40 @@ class TestDatabaseEvaluateIndividuals:
         # New behavior: failed batched evaluation keeps y as empty ndarray (not None).
         assert isinstance(db.individuals[1].y, np.ndarray)
         assert db.individuals[1].y.size == 0
+
+
+def test_truncate_database_keeps_the_head_in_order(problem, database):
+    '''Budget trimming needs the opposite of `shrink_database`.
+
+    `shrink_database` deletes the worst individuals by Pareto rank with a
+    random reserve. A candidate batch trimmed to a remaining evaluation
+    budget is already in priority order, so the head must survive untouched
+    and the tail is what goes.
+    '''
+    for index in range(5):
+        database.add_individual(_indi(problem, 0.1 * index, ID=index + 1))
+
+    database.truncate_database(3)
+
+    assert database.size == 3
+    assert [indi.ID for indi in database.individuals] == [1, 2, 3]
+    assert database._id_list == [1, 2, 3]
+
+
+def test_truncate_database_ignores_a_limit_above_the_size(problem, database):
+    for index in range(3):
+        database.add_individual(_indi(problem, 0.1 * index, ID=index + 1))
+
+    database.truncate_database(10)
+
+    assert database.size == 3
+
+
+def test_truncate_database_to_zero_empties_it(problem, database):
+    for index in range(3):
+        database.add_individual(_indi(problem, 0.1 * index, ID=index + 1))
+
+    database.truncate_database(0)
+
+    assert database.size == 0
+    assert database._id_list == []

@@ -631,6 +631,39 @@ class Database:
             else:
                 self.delete_individual(ID=_id)
 
+    def truncate_database(self, max_size: int) -> None:
+        '''
+        Keep the first `max_size` individuals, in order, and drop the rest.
+
+        This is the order-preserving counterpart of
+        :meth:`shrink_database`. The latter deletes the *worst* individuals
+        by Pareto rank with a random reserve, which is what a population
+        needs; a candidate batch trimmed to a remaining evaluation budget
+        needs the opposite: the proposals are already in priority order, so
+        the tail is what must go and the head must survive untouched.
+
+        Parameters:
+        -----------
+        max_size: int
+            Number of individuals to keep. Values below zero are treated
+            as zero; a database already at or below the limit is untouched.
+        '''
+        max_size = max(0, int(max_size))
+
+        if self.size <= max_size:
+            return
+
+        self.individuals = self.individuals[:max_size]
+        self._id_list = self._id_list[:max_size]
+
+        # Same reasoning as `delete_individual`: dropping individuals can
+        # merge Pareto fronts, so the cached ranks and front indices no
+        # longer describe this database.
+        self._sorted = False
+        self._updated_crowding_distance = False
+        self._updated_pareto_rank = False
+        self._index_pareto_fronts = []
+
     def eliminate_invalid_individuals(self) -> None:
         '''
         Eliminate invalid individuals from the database.

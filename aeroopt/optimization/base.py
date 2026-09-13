@@ -5,6 +5,7 @@ Base framework for optimization.
 from __future__ import annotations
 
 import os
+import sys
 import numpy as np
 import time
 from abc import ABC, abstractmethod
@@ -141,6 +142,14 @@ class OptBaseFramework(ABC):
         self.save_result_files : bool = save_result_files
         self.logging : bool = logging
 
+        # Size of `db_total` once the initial population is in place. The
+        # evaluation budget counts what the search loop adds on top of it, so
+        # a resumed database and a fresh DoE are measured the same way. `None`
+        # until `initialize_population` has finished, which is what keeps the
+        # initial population itself outside the budget: it has its own size
+        # control in `force_initial_population_size`.
+        self._db_size_after_initialization : int|None = None
+
         # Next ID handed to a candidate. It only ever moves forward, because an
         # ID names the external working folder: reusing one would make the run
         # read the previous design's results. `db_total.get_largest_ID() + 1` is
@@ -192,6 +201,40 @@ class OptBaseFramework(ABC):
         Maximum number of iterations in the optimization.
         '''
         return self.optimization_settings.max_iterations
+
+    @property
+    def max_evaluations(self) -> int:
+        '''
+        Evaluation budget of the search loop; 0 means no budget.
+        '''
+        return self.optimization_settings.max_evaluations
+
+    @property
+    def new_evaluations(self) -> int:
+        '''
+        Evaluations the search loop has spent so far.
+
+        Counted as the growth of `db_total` since the initial population was
+        prepared, so resumed designs and the initial DoE are excluded. A
+        candidate rejected before evaluation never enters `db_total` and
+        therefore never spends budget. Zero until the initial population is in
+        place, because nothing spent before then belongs to the search loop.
+        '''
+        if self._db_size_after_initialization is None:
+            return 0
+        return max(0, self.db_total.size - self._db_size_after_initialization)
+
+    @property
+    def remaining_evaluations(self) -> int:
+        '''
+        Evaluations still affordable under the budget.
+
+        Without a budget this is unbounded, reported as `sys.maxsize`, so a
+        caller may always use it as a batch-size cap.
+        '''
+        if self.max_evaluations <= 0:
+            return sys.maxsize
+        return max(0, self.max_evaluations - self.new_evaluations)
 
     @property
     def name(self) -> str:
@@ -284,6 +327,7 @@ class OptBaseFramework(ABC):
         self.db_candidate.empty_database()
         self.iteration = 0
         self._next_ID = 1
+        self._db_size_after_initialization = None
         self._start_time = time.perf_counter()
 
         self.log(f'Optimization [{self.name}] initialized.', level=0, prefix='=== ')
@@ -338,6 +382,22 @@ class OptBaseFramework(ABC):
     def resume(self) -> None:
         '''
         Resume the optimization from previous results.
+
+        By default the resumed designs are flattened to generation 0: they are
+        the starting stock of a new study, and their own history is not part of
+        it.
+
+        A study continued in segments needs the opposite. Set
+        `resume_preserve_generation` and the generation recorded in the resume
+        file is kept, with `iteration` placed at the last generation it holds,
+        so the new offspring are numbered after it rather than colliding with
+        it. Anything that reasons about "the previous generation" --- a report,
+        a convergence plot, an operator that inspects the last batch --- then
+        reads the same history across the segment boundary that it would have
+        read in one uninterrupted run.
+
+        `source` is set to `previous_database` in both modes: it records how an
+        individual entered *this* run, which is the resume file either way.
         '''
         if not self.optimization_settings.resume:
             return None
@@ -347,17 +407,49 @@ class OptBaseFramework(ABC):
         self.db_total.read_database_json(fname)
         self.db_total.update_id_list()
 
+        preserve_generation = self.optimization_settings.resume_preserve_generation
+
         for indi in self.db_total.individuals:
-            indi.generation = 0
+            if not preserve_generation:
+                indi.generation = 0
             indi.source = 'previous_database'
 
-        self.iteration = 0
+        if preserve_generation:
+            self.iteration = max((int(indi.generation)
+                                  for indi in self.db_total.individuals),
+                                 default=0)
+        else:
+            self.iteration = 0
+
+        # Constraints are recomputed against *this* study's problem. The
+        # resume file carries the `sum_violation` and `constraint_violations`
+        # of the run that wrote it, and `read_database_json` restores them
+        # verbatim; a study that resumes the same designs under a different
+        # constraint set would otherwise rank them by the old constraints
+        # without any sign that it had. Recomputing is cheap next to an
+        # evaluation and is a no-op when the constraints are unchanged.
+        for indi in self.db_total.individuals:
+            if indi.is_evaluated and indi.valid_evaluation:
+                indi.eval_constraints()
 
         # Continue numbering past the resumed database, so the new candidates do
         # not evaluate in the working folders of the previous run.
         self._next_ID = self.max_ID + 1
 
         self.log(f'Resume from [{fname}], size = {self.db_total.size}.', level=0)
+
+        if preserve_generation:
+            if self.iteration > 0:
+                self.log(f'Resumed generations 0--{self.iteration} preserved; '
+                         f'the next generation is {self.iteration+1}.', level=0)
+            else:
+                # Asking to preserve a history the file does not carry is
+                # almost always a wrong `fname_db_resume`, and it fails
+                # silently: the run looks like an ordinary fresh start.
+                self.log('Warning: `resume_preserve_generation` is set but '
+                         f'[{fname}] holds no generation above 0; the resumed '
+                         'designs are indistinguishable from an initial '
+                         'population.', level=0)
 
     def initialize_population(self) -> None:
         '''
@@ -368,6 +460,11 @@ class OptBaseFramework(ABC):
         - evaluation of `db_candidate`
         - update `db_total` and `db_valid`
         - post-processing of `db_total` and `db_valid`
+
+        Whatever `db_total` holds when this returns --- resumed designs and a
+        freshly sampled DoE alike --- is the starting stock of the study, and
+        the size is recorded here so that `max_evaluations` can measure what
+        the search loop spends on top of it.
         '''
         self.log('Initial population preparation started.', level=1)
 
@@ -385,6 +482,8 @@ class OptBaseFramework(ABC):
         if self.post_process is not None:
             self.post_process.apply()
             self.derive_valid_from_total()
+
+        self._db_size_after_initialization = self.db_total.size
 
         self.log(f"Initial population prepared: valid={self.db_valid.size}.", level=1)
 
@@ -439,11 +538,54 @@ class OptBaseFramework(ABC):
             if not added:
                 self.log(warning_info, level=2, prefix='  - ')
 
+    def _trim_candidates_to_budget(self) -> None:
+        '''
+        Drop the tail of the candidate batch that the budget cannot pay for.
+
+        An algorithm is free to ignore the budget and propose a full
+        population; the loop is what guarantees the run never buys more
+        evaluations than it was given. Candidates are proposed in priority
+        order, so the tail is what goes.
+
+        The initial population is exempt. It is the starting stock rather than
+        something the search loop spent, and it has its own size control in
+        `force_initial_population_size`; a study whose budget is smaller than
+        its DoE would otherwise have that DoE silently cut down.
+        '''
+        if self.max_evaluations <= 0:
+            return None
+
+        if self._db_size_after_initialization is None:
+            return None
+
+        affordable = self.remaining_evaluations
+
+        if self.db_candidate.size <= affordable:
+            return None
+
+        n_dropped = self.db_candidate.size - affordable
+        self.db_candidate.truncate_database(affordable)
+        self.log(f'Evaluation budget: last {n_dropped} candidate(s) dropped, '
+                 f'{affordable} of {self.max_evaluations} evaluation(s) '
+                 'remain to be spent.', level=1, prefix='  > ')
+
     #TODO: Can be adapted
     def termination(self) -> bool:
         '''
         Check if the optimization should be terminated.
+
+        Two independent stopping rules, whichever comes first: a generation
+        count, and --- when `max_evaluations` is set --- a budget of the
+        evaluations the search loop has spent since the initial population.
+
+        The budget is the one that matters when an evaluation is expensive: a
+        study that must compare two workflows over the same solver cost cannot
+        express that as a generation count, because a batch that loses
+        candidates to duplicate rejection does not cost a full population.
         '''
+        if self.max_evaluations > 0 and self.new_evaluations >= self.max_evaluations:
+            return True
+
         return self.iteration >= self.max_iterations
 
     #TODO: Can be adapted
@@ -485,15 +627,23 @@ class OptBaseFramework(ABC):
         then add the individuals to `db_total`.
 
         The candidates are snapped to the precision grid, screened against
-        everything already evaluated, and given run-unique IDs first, so that
-        what is evaluated is a legal design that has not been paid for before
-        and its results land in a working folder of its own. All three steps
-        happen here, after the pre-processing hook, so that candidates a hook
-        added or moved are covered too.
+        everything already evaluated, trimmed to what `max_evaluations` can
+        still pay for, and given run-unique IDs, so that what is evaluated is
+        a legal design that has not been paid for before, that the study can
+        afford, and whose results land in a working folder of its own. All
+        four steps happen here, after the pre-processing hook, so that
+        candidates a hook added or moved are covered too.
+
+        The order is what makes the budget exact. Trimming after the screening
+        means a candidate dropped as a duplicate does not consume a slot the
+        budget would have paid for, and trimming before the IDs are handed out
+        means no ID is burnt on a candidate that is never evaluated.
         '''
         self._apply_precision_to_candidate_individuals()
 
         self._drop_candidates_already_evaluated()
+
+        self._trim_candidates_to_budget()
 
         self._assign_ID_to_candidate_individuals()
 

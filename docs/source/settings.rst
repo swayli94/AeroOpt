@@ -325,6 +325,10 @@ Controls the optimization loop, independently of the algorithm.
      - bool
      - ``false``
      - Load ``fname_db_resume`` instead of starting from a new sample.
+   * - ``resume_preserve_generation``
+     - bool
+     - ``false``
+     - Keep the generation recorded in the resume file and place ``iteration`` at the last generation it holds, instead of flattening the resumed designs to generation 0. Use it when a study runs in segments and the generation history has to stay readable across the boundary.
    * - ``population_size``
      - int
      - ``64``
@@ -333,6 +337,10 @@ Controls the optimization loop, independently of the algorithm.
      - int
      - ``100``
      - Generations after the initial population.
+   * - ``max_evaluations``
+     - int
+     - ``0``
+     - Budget of evaluations spent by the search loop, i.e. excluding the initial population; ``0`` disables it. When both limits are set, whichever comes first ends the run, and the last batch is trimmed so the budget is never exceeded.
    * - ``working_directory``
      - str
      - ``"./"``

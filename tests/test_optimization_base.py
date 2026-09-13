@@ -1,4 +1,6 @@
 import os
+import sys
+
 import numpy as np
 import pytest
 
@@ -33,6 +35,7 @@ def _make_opt(problem, optimization_settings):
     opt.post_process = None
     opt.iteration = 0
     opt._next_ID = 1
+    opt._db_size_after_initialization = 0
     opt.db_total = Database(problem, database_type="total")
     opt.db_valid = Database(problem, database_type="valid")
     opt.db_elite = Database(problem, database_type="elite")
@@ -418,3 +421,146 @@ def test_update_total_and_valid_repairs_analyze_total_only_when_valid_ok(
 
     assert opt.analyze_total.database is opt.db_total
     assert opt.analyze_valid.database is opt.db_valid
+
+
+#* Resuming a study in segments
+
+
+def _write_resume_file(opt, generations):
+    '''Write a `db-resume.json` whose individuals carry the given generations.'''
+    db = Database(opt.problem, database_type="total")
+    for index, generation in enumerate(generations, start=1):
+        indi = Individual(opt.problem,
+                          x=np.array([0.05 * index]),
+                          y=np.array([0.025 * index]), ID=index)
+        indi.generation = generation
+        indi.source = "evolutionary_operator"
+        db.individuals.append(indi)
+    db.update_id_list()
+
+    os.makedirs(opt.dir_summary, exist_ok=True)
+    db.output_database_json(
+        os.path.join(opt.dir_summary,
+                     opt.optimization_settings.fname_db_resume))
+
+
+def test_resume_flattens_generations_by_default(problem, optimization_settings):
+    '''The resumed designs are the starting stock of a new study.'''
+    optimization_settings.resume = True
+    opt = _make_opt(problem, optimization_settings)
+    _write_resume_file(opt, [0, 1, 2, 3])
+
+    opt.resume()
+
+    assert opt.db_total.size == 4
+    assert [indi.generation for indi in opt.db_total.individuals] == [0, 0, 0, 0]
+    assert all(indi.source == "previous_database"
+               for indi in opt.db_total.individuals)
+    assert opt.iteration == 0
+    assert opt._next_ID == 5
+
+
+def test_resume_preserves_generations_when_asked(problem, optimization_settings):
+    '''A continuation needs the generation history to survive the boundary.'''
+    optimization_settings.resume = True
+    optimization_settings.resume_preserve_generation = True
+    opt = _make_opt(problem, optimization_settings)
+    _write_resume_file(opt, [0, 1, 2, 3])
+
+    opt.resume()
+
+    assert [indi.generation for indi in opt.db_total.individuals] == [0, 1, 2, 3]
+    # The next generation the loop produces must not collide with the last one
+    # the file already holds.
+    assert opt.iteration == 3
+    assert opt._next_ID == 5
+
+
+def test_resume_preserving_an_absent_history_warns(problem, optimization_settings):
+    '''Preserving a history the file does not carry must not pass silently.'''
+    optimization_settings.resume = True
+    optimization_settings.resume_preserve_generation = True
+    opt = _make_opt(problem, optimization_settings)
+    _write_resume_file(opt, [0, 0, 0])
+
+    messages = []
+    opt.log = lambda text, **kwargs: messages.append(text)
+
+    opt.resume()
+
+    assert opt.iteration == 0
+    assert any("resume_preserve_generation" in text and "Warning" in text
+               for text in messages)
+
+
+#* Evaluation budget
+
+
+def test_budget_is_unbounded_when_disabled(problem, optimization_settings):
+    optimization_settings.max_evaluations = 0
+    opt = _make_opt(problem, optimization_settings)
+
+    assert opt.remaining_evaluations == sys.maxsize
+    assert opt.termination() is False
+
+
+def test_new_evaluations_excludes_the_starting_stock(problem, optimization_settings):
+    optimization_settings.max_evaluations = 5
+    opt = _make_opt(problem, optimization_settings)
+    for index in range(3):
+        _append_direct(opt.db_total,
+                       Individual(problem, x=np.array([0.1 * index]), ID=index + 1))
+    opt._db_size_after_initialization = opt.db_total.size
+
+    assert opt.new_evaluations == 0
+    assert opt.remaining_evaluations == 5
+
+    _append_direct(opt.db_total, Individual(problem, x=np.array([0.9]), ID=4))
+
+    assert opt.new_evaluations == 1
+    assert opt.remaining_evaluations == 4
+
+
+def test_termination_on_budget_before_iterations(problem, optimization_settings):
+    optimization_settings.max_iterations = 100
+    optimization_settings.max_evaluations = 2
+    opt = _make_opt(problem, optimization_settings)
+
+    assert opt.termination() is False
+
+    for index in range(2):
+        _append_direct(opt.db_total,
+                       Individual(problem, x=np.array([0.1 * index]), ID=index + 1))
+
+    assert opt.new_evaluations == 2
+    assert opt.termination() is True
+    assert opt.iteration < opt.max_iterations
+
+
+def test_trim_candidates_to_budget_drops_the_tail(problem, optimization_settings):
+    optimization_settings.max_evaluations = 3
+    opt = _make_opt(problem, optimization_settings)
+
+    opt.db_candidate = Database(problem, database_type="population")
+    for index in range(5):
+        _append_direct(opt.db_candidate,
+                       Individual(problem, x=np.array([0.1 * index]), ID=index + 1))
+
+    opt._trim_candidates_to_budget()
+
+    # Candidates are proposed in priority order, so the head must survive.
+    assert [indi.ID for indi in opt.db_candidate.individuals] == [1, 2, 3]
+
+
+def test_trim_candidates_is_inert_without_a_budget(problem, optimization_settings):
+    optimization_settings.max_evaluations = 0
+    opt = _make_opt(problem, optimization_settings)
+
+    opt.db_candidate = Database(problem, database_type="population")
+    for index in range(5):
+        _append_direct(opt.db_candidate,
+                       Individual(problem, x=np.array([0.1 * index]), ID=index + 1))
+
+    opt._trim_candidates_to_budget()
+
+    assert opt.db_candidate.size == 5

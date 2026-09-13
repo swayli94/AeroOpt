@@ -222,8 +222,10 @@ Every constraint contributes `max(0, g)` to `sum_violation`. An individual with
 | Key | Default | Meaning |
 | ----- | --------- | --------- |
 | `resume` | `false` | Load `fname_db_resume` instead of sampling fresh. |
+| `resume_preserve_generation` | `false` | Keep the generation recorded in the resume file, and place `iteration` at the last generation it holds, instead of flattening the resumed designs to generation 0. Use it when a study runs in segments and the generation history must stay readable across the boundary. |
 | `population_size` | `64` | Individuals per generation. |
 | `max_iterations` | `100` | Generations after the initial population. |
+| `max_evaluations` | `0` | Budget of evaluations spent by the search loop, i.e. excluding the initial population. `0` disables it. When both limits are set, whichever comes first ends the run, and the last batch is trimmed so the budget is never exceeded. |
 | `working_directory` | `"./"` | Root of `Calculation`, `Summary`, `Runfiles`. |
 | `info_level_on_screen` | `1` | Messages at or below this level print; all are logged. |
 | `critical_potential_x` | `0.2` | Potential at the typical neighbour distance. |

@@ -65,10 +65,20 @@ class SettingsOptimization(SettingsBase):
     -----------
     resume: bool
         Restart from a previously saved database instead of a fresh population.
+    resume_preserve_generation: bool
+        Keep the generation label and iteration counter recorded in the resume
+        file instead of flattening the resumed designs to generation 0. Use it
+        when a study is continued in segments and the generation history has to
+        stay meaningful across the boundary.
     population_size: int
         Number of individuals per generation.
     max_iterations: int
         Number of generations after the initial population.
+    max_evaluations: int
+        Budget of evaluations spent *after* the initial population, i.e. by the
+        search loop. Zero disables the budget and the run stops on
+        ``max_iterations`` alone. When both are set, whichever comes first ends
+        the run, and the last batch is trimmed so the budget is never exceeded.
     working_directory: str
         Root directory for ``Calculation``, ``Summary`` and ``Runfiles``.
     info_level_on_screen: int
@@ -87,8 +97,10 @@ class SettingsOptimization(SettingsBase):
 
     _FIELDS: Tuple[FieldSpec, ...] = (
         ('resume', bool, False),
+        ('resume_preserve_generation', bool, False),
         ('population_size', int, 64),
         ('max_iterations', int, 100),
+        ('max_evaluations', int, 0),
         ('fname_db_total', str, 'db-total.json'),
         ('fname_db_elite', str, 'db-elite.json'),
         ('fname_db_resume', str, 'db-resume.json'),

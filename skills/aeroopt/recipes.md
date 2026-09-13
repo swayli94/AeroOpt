@@ -157,7 +157,15 @@ opt.post_process = ReportProgress(opt)
 ```
 
 Place the previous `db-total.json` at `<working_directory>/Summary/db-resume.json`.
-Resumed individuals get `generation = 0` and `source = 'previous_database'`.
+Resumed individuals get `source = 'previous_database'` and, by default,
+`generation = 0`: they are the starting stock of a new study, not a history it
+continues.
+
+Their constraints are recomputed against the resuming study's problem. The
+resume file stores the violations of the run that wrote it, so a study that
+loads the same designs under a *different* constraint set --- a relaxed
+screening loop and a strict one over the same archive --- gets its own
+verdicts rather than inheriting the previous ones.
 
 A resumed study takes **no** initial sample — it carries on from the designs it
 loaded instead of spending another `population_size` evaluations on a fresh
@@ -167,6 +175,51 @@ anyway, e.g. to widen a converged archive.
 Clear `Calculation/` only if you are *not* resuming: with `"resume": true` the
 case folders that match the loaded database are reused, and the rest raise
 `StaleCaseFolderError`.
+
+## Running a study in segments
+
+A long run is often executed in segments — a queue limit, a maintenance
+window, a decision to extend a study that had already finished. A plain resume
+is the wrong tool there: it flattens the loaded designs to generation 0, so
+the convergence history restarts and anything that reasons about "the previous
+generation" reads a run that never happened.
+
+```json
+{
+    "resume": true,
+    "resume_preserve_generation": true,
+    "force_initial_population_size": 0,
+    "max_evaluations": 320
+}
+```
+
+The generation recorded in the resume file is kept, `iteration` starts at the
+last generation it holds, and new offspring are numbered after it. IDs continue
+past the loaded database as they always do, so the case folders of the earlier
+segment are never reused.
+
+The budget is per segment: it counts what *this* run's search loop spends, and
+the resumed designs are the starting stock rather than a charge against it.
+
+## Spending a fixed evaluation budget
+
+When an evaluation costs minutes to hours, the meaningful limit is solver cost,
+not generations — and the two are not interchangeable, because a batch that
+loses candidates to duplicate rejection does not cost a full population.
+
+```json
+{ "max_iterations": 1000, "max_evaluations": 320 }
+```
+
+Whichever limit comes first ends the run. The last batch is trimmed to what the
+budget can still pay for, so a budget of 13 with a population of 6 buys exactly
+13 evaluations and not 18. `opt.new_evaluations` and `opt.remaining_evaluations`
+report the state at any point; without a budget the latter is `sys.maxsize`, so
+it is always safe to use as a batch-size cap.
+
+The budget excludes the initial population, which has its own control in
+`force_initial_population_size`. Two studies compared over an equal solver cost
+should therefore share both settings.
 
 ## Analysing an archive offline
 
