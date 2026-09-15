@@ -116,7 +116,9 @@ class MultiProcessEvaluation:
         Parameters
         -----------------
         name: str
-            name of the current running folder, the working folder is ./Calculation/name.
+            name of the current running folder; the working folder is
+            `<prob.calculation_folder>/name`, and `calculation_folder` is
+            'Calculation' unless the problem was given another.
         x: ndarray [dim_input]
             function input
         prob: Problem
@@ -152,7 +154,9 @@ class MultiProcessEvaluation:
         i: int
             index of this `x` in xs[n, dim_input]
         name: str
-            name of the current running folder, the working folder is ./Calculation/name
+            name of the current running folder; the working folder is
+            `<prob.calculation_folder>/name`, and `calculation_folder` is
+            'Calculation' unless the problem was given another.
         prob: Problem
             the problem for external runs
 

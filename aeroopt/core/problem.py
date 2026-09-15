@@ -260,7 +260,8 @@ class Problem:
         output_fname: str
             file the solver is expected to write, one `name value` pair per line.
         timeout_marker_fname: str
-            empty file left behind when the run was killed on timeout.
+            file left behind when the run was killed on timeout; it holds one
+            line naming the timeout it exceeded.
         '''
 
         if timeout is None:
